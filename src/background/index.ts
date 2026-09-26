@@ -14,7 +14,10 @@ import { isIndexable, forgetSite, clearKB, kbSize, recentPages } from './knowled
 import { cacheClear } from './response-cache';
 import { runDoctor } from './doctor';
 import { idbGetAll, STORE_CACHE } from './db';
-import { appendRecordedStep, resumeRecordingForTab, recordNavigation, cancelRecording } from './workflow-engine';
+import {
+  appendRecordedStep, resumeRecordingForTab, recordNavigation, cancelRecording, startRecording, stopRecording,
+  recordingTab, recordingCount, listWorkflows, playWorkflow, findWorkflowKey, isSafeWorkflowUrl,
+} from './workflow-engine';
 import { beginTask, finishTask, recoverInterruptedTasks, cancelActiveTask, taskStatus, runningScopes } from './task-state';
 import {
   chatState, newChat, openChat, listChats, deleteChat, deleteAllChats, exportChats, isTemporaryChat,
@@ -27,14 +30,16 @@ import {
 } from './isolation';
 import { createWriterMenus, runWriter, WRITER_MENU_PREFIX } from './writer';
 import { readMentionedTabs, withTabContext } from './tab-context';
-import { resolveAppearance } from '../characters';
+import { resolveAppearance, characterById, REACTOR } from '../characters';
 import {
   startOpenClaw, openClawReadyFor, runOnOpenClaw, abortOpenClaw, openClawRunPending, openClawStatus, saveOpenClawSettings,
+  openClawSetupCommand,
 } from './openclaw';
 import { setupScript } from './openclaw/setup-script';
+import { agentModeInfo, turnOnAgentMode, turnOffAgentMode } from './openclaw/agent-mode';
 import { handleLocally } from './local-brain';
 import {
-  DEFAULT_SCOPE, leasesReady, leaseFor, leaseForTab, listLeases, scopeForTab, isAgentId,
+  DEFAULT_SCOPE, AGENT_IDS, leasesReady, leaseFor, leaseForTab, listLeases, scopeForTab, isAgentId,
   assignLease, releaseLease, releaseAllLeases, forgetTab, onLeaseChange,
 } from './agents/leases';
 
@@ -59,7 +64,7 @@ const TRUSTED_ONLY = [
   'ECHO_SKILL_DELETE', 'ECHO_SKILLS_RESET', 'ECHO_ISOLATION_STATUS', 'ECHO_ISOLATION_CLOSE',
   'ECHO_OPEN_EXTENSION_DETAILS', 'ECHO_CLEAR_CONVERSATION',
   'ECHO_AGENT_LIST', 'ECHO_AGENT_ASSIGN', 'ECHO_AGENT_RELEASE', 'ECHO_AGENT_THREAD',
-  'ECHO_OPENCLAW_STATUS', 'ECHO_OPENCLAW_SAVE', 'ECHO_OPENCLAW_SETUP_SCRIPT',
+  'ECHO_OPENCLAW_SAVE', 'ECHO_OPENCLAW_SETUP_SCRIPT', 'ECHO_OPENCLAW_SETUP_COMMAND',
 ];
 const fromApprovalFrame = (sender: chrome.runtime.MessageSender) =>
   String(sender.url || '').startsWith(chrome.runtime.getURL('approval.html'));
@@ -179,6 +184,68 @@ function requestScope(senderTabId: number | undefined, agent?: string): string {
 
 const INCOGNITO_HELP = 'Private agent browsing needs ECHO to be allowed in Incognito. '
   + 'I opened ECHO\'s details page: turn on "Allow in Incognito", then try again.';
+
+// --- tasks the user showed ECHO ("Watch me") ------------------------------------------
+
+/** The agent that works in this tab: its own, or (agent mode on) a free one given the tab. */
+async function agentForTask(tabId: number): Promise<string | null> {
+  const owner = leaseForTab(tabId);
+  if (owner) return owner.agent;
+  if (!(await openClawStatus().catch(() => null))?.ready) return null;
+  // The character on the page first, so the one the user sees is the one who does it.
+  const { echo_avatar } = await chrome.storage.local.get(['echo_avatar']);
+  const agent = [resolveAppearance(echo_avatar), ...AGENT_IDS].find(a => isAgentId(a) && !leaseFor(a));
+  if (!agent) return null;
+  clearCloudConversation(agent);
+  await clearAgentThread(agent);
+  await assignLease(agent, tabId);
+  return agent;
+}
+
+const agentName = (agent: string) => (agent === REACTOR ? 'Echo · Core' : `Echo · ${characterById(agent)?.tagline || agent}`);
+
+/**
+ * Do a recorded task in `tabId`: replay the user's own steps first (instant,
+ * no model, no tokens). If a step no longer fits the page and an agent works
+ * here, the agent does that step itself and runs the rest of the recording.
+ */
+async function runRecordedTask(name: string, tabId: number) {
+  const all = await listWorkflows();
+  const key = findWorkflowKey(all, name);
+  if (!key) { say(tabId, `I don't have a task called "${name}".`, 0); return; }
+  const agent = await agentForTask(tabId).catch(() => null);
+  const scope = scopeForTab(tabId);
+  // Like any new request, this replaces what was running in the same scope.
+  abortCurrentWork(scope);
+  cancelTask(scope);
+  const id = await beginTask(tabId, scope);
+  try {
+    echoUser(`Do "${key}"`, tabId);
+    setState(tabId, `Doing "${key}"…`);
+    const result = await playWorkflow(key, tabId);
+    if (result.ok) {
+      say(tabId, agent ? `${agentName(agent)} did "${key}": all ${result.total} steps.` : result.message, 0);
+      return;
+    }
+    if (!result.failedStep) { say(tabId, result.message, 0); return; }
+    if (scope === DEFAULT_SCOPE || !openClawReadyFor(scope)) {
+      say(tabId, `${result.message} Turn on agents and an agent finishes steps like this by itself.`, 0);
+      return;
+    }
+    say(tabId, `This page changed since you showed me "${key}": step ${result.failedStep} of ${result.total} no longer fits. `
+      + `${agentName(scope)} is finishing it.`, 0);
+    await runOnOpenClaw(scope, `Do my task "${key}" in your tab. Replaying my recording stopped at step ${result.failedStep} of ${result.total}: ${result.message}\n`
+      + `Show the task with the workflow tool, do step ${result.failedStep} yourself with act, then run the task from step ${result.failedStep + 1}. `
+      + 'Do only what my recorded steps do.');
+  } catch (error: any) {
+    say(tabId, `I couldn't do "${key}": ${error?.message || 'unknown error'}`, 0);
+  } finally {
+    if (await finishTask(id)) setState(tabId, 'Idle');
+  }
+}
+
+/** A task name typed into the recording bar: letters, digits, spaces and a little punctuation. */
+const cleanTaskName = (raw: unknown) => String(raw || '').replace(/[^\p{L}\p{N} '&-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
 
 async function runRequest(text: string, tabId?: number, opts: RequestOptions = {}) {
   await recoveryReady;
@@ -655,7 +722,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // --- OpenClaw gateway settings ----------------------------------------------------
 
   if (message.type === 'ECHO_OPENCLAW_STATUS') {
-    openClawStatus().then(status => sendResponse({ success: true, status }))
+    // The Echo panel on a web page only needs on/off and how far along it is;
+    // the gateway address and pairing details stay with ECHO's own pages.
+    const role = (r: any) => (r?.kind === 'error' ? { kind: 'error', code: r.code } : { kind: r?.kind });
+    const forPage = (s: any) => ({ enabled: s.enabled, ready: s.ready, url: '', hasToken: false, testedVersion: s.testedVersion,
+      node: role(s.node), operator: role(s.operator), commands: { state: s.commands?.state } });
+    openClawStatus().then(status => sendResponse({ success: true, status: trustedPage(sender) ? status : forPage(status) }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
@@ -673,6 +745,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ECHO_OPENCLAW_SETUP_SCRIPT') {
     sendResponse({ success: true, script: setupScript(chrome.runtime.id, chrome.runtime.getManifest().version) });
     return false;
+  }
+
+  // Agent mode by button (Echo Helper does the work on this computer). The
+  // in-page panel may ask for the status and turn it on or off; an AI key is
+  // only accepted from ECHO's own pages.
+  if (message.type === 'ECHO_AGENT_MODE') {
+    const trusted = trustedPage(sender);
+    const progress = (step: string) => chrome.runtime.sendMessage({ type: 'ECHO_AGENT_MODE_PROGRESS', step }).catch(() => {});
+    (async () => {
+      if (message.action === 'status') return { success: true, ...await agentModeInfo() };
+      if (message.action === 'turn-off') { await turnOffAgentMode(); return { success: true }; }
+      if (message.action !== 'turn-on') throw new Error('Unknown agent mode action.');
+      const ai = trusted && message.ai && ['google', 'anthropic'].includes(message.ai.provider) && typeof message.ai.key === 'string'
+        ? { provider: message.ai.provider, key: message.ai.key } : undefined;
+      return { success: true, ...await turnOnAgentMode({ ai, useEchoKey: message.useEchoKey !== false }, progress) };
+    })().then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // Settings and the chat panel, from the in-page panel's buttons.
+  if (message.type === 'ECHO_OPEN_SETTINGS') {
+    chrome.runtime.openOptionsPage().catch(() => {});
+    sendResponse({ success: true });
+    return false;
+  }
+  if (message.type === 'ECHO_OPEN_CHAT_PANEL') {
+    // Opened at once, while Chrome still counts the click as the user's.
+    const opening = sender.tab?.id != null && chrome.sidePanel ? chrome.sidePanel.open({ tabId: sender.tab.id }) : Promise.reject(new Error('No panel'));
+    if (message.view === 'agent-setup') chrome.storage.session.set({ echo_panel_view: 'agent-setup' }).catch(() => {});
+    opening.then(() => sendResponse({ success: true })).catch(error => sendResponse({ success: false, error: error?.message }));
+    return true;
+  }
+
+  // One command that sets up this computer's gateway and pairs this ECHO.
+  if (message.type === 'ECHO_OPENCLAW_SETUP_COMMAND') {
+    openClawSetupCommand().then(r => sendResponse({ success: true, ...r }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
   }
 
   // --- avatars on tabs ----------------------------------------------------------
@@ -740,15 +850,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'ECHO_RECORD_STATUS') {
     resumeRecordingForTab(sender.tab?.id || -1)
-      .then(active => sendResponse({ success: true, active }))
+      .then(async active => sendResponse({ success: true, active, count: active ? await recordingCount() : 0 }))
       .catch(() => sendResponse({ success: false, active: false }));
     return true;
   }
 
   if (message.type === 'ECHO_RECORD_STEP') {
     appendRecordedStep(sender.tab?.id || -1, message.step)
-      .then(saved => sendResponse({ success: saved }))
+      .then(async saved => sendResponse({ success: saved, count: await recordingCount() }))
       .catch(() => sendResponse({ success: false }));
+    return true;
+  }
+
+  // "Watch me" from the page: record the user's steps in this tab, save them
+  // as a task, list saved tasks, and do one (with an agent when agent mode is on).
+  if (message.type === 'ECHO_WORKFLOW') {
+    const tabId = sender.tab?.id;
+    (async () => {
+      if (tabId == null) throw new Error('Open a web page first.');
+      const inThisTab = async () => (await recordingTab()) === tabId;
+      switch (message.action) {
+        case 'start': {
+          const url = sender.tab?.url || '';
+          if (!/^https?:/i.test(url)) throw new Error('Open a regular web page first.');
+          if (!isSafeWorkflowUrl(url)) throw new Error('I don\'t record on sign-in or payment pages.');
+          const other = await recordingTab();
+          if (other != null && other !== tabId) await cancelRecording();
+          await startRecording(tabId, url);
+          return { success: true };
+        }
+        case 'stop': {
+          if (!await inThisTab()) throw new Error('Nothing is being recorded here.');
+          const name = cleanTaskName(message.name);
+          if (!name) throw new Error('Give the task a name.');
+          const result = await stopRecording(name);
+          return { success: result.ok, name, count: result.count, message: result.message, error: result.ok ? undefined : result.message };
+        }
+        case 'cancel':
+          if (await inThisTab()) await cancelRecording();
+          return { success: true };
+        case 'list': {
+          const tasks = Object.values(await listWorkflows()).sort((a, b) => b.created - a.created)
+            .map(w => ({ name: w.name, steps: w.steps.length }));
+          return { success: true, tasks };
+        }
+        case 'run':
+          runRecordedTask(String(message.name || ''), tabId).catch(() => {});
+          return { success: true };
+        default:
+          throw new Error('Unknown request.');
+      }
+    })().then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
 

@@ -16,6 +16,11 @@ module.exports = {
   module: {
     rules: [
       {
+        // `import text from './file?raw'`: the file's text (Echo Helper ships inside ECHO).
+        resourceQuery: /raw/,
+        type: 'asset/source',
+      },
+      {
         test: /\.tsx?$/,
         use: 'ts-loader',
         exclude: /node_modules/,

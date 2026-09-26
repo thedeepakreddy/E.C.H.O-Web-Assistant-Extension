@@ -61,7 +61,7 @@ async function findTarget(cdp, predicate, timeoutMs = 10_000) {
 
 /**
  * Start Chrome for Testing with ECHO loaded. Returns the CDP client, the
- * extension id, its service-worker target, and a cleanup function.
+ * extension id, its service-worker target, the profile folder, and a cleanup function.
  */
 async function launchEcho({ chrome = DEFAULT_CHROME, urls = ['about:blank'], extensionDir = dist } = {}) {
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-e2e-'));
@@ -92,7 +92,7 @@ async function launchEcho({ chrome = DEFAULT_CHROME, urls = ['about:blank'], ext
     if (await evaluate(cdp, worker.targetId, `typeof chrome.tabs?.query === 'function'`).catch(() => false)) break;
     await delay(200);
   }
-  return { cdp, extensionId: id, worker, browser: version.Browser, cleanup };
+  return { cdp, extensionId: id, worker, browser: version.Browser, userDir, cleanup };
 }
 
 module.exports = { CDP, evaluate, findTarget, launchEcho, delay, root, dist };

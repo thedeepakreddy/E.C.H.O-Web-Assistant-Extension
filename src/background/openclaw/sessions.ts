@@ -52,7 +52,29 @@ export function failureText(character: string, why: string): string {
     return `I couldn't reach my browser tools. If Echo · ${tagline} also has a tab in another browser `
       + 'connected to this OpenClaw gateway, release it there, then try again.';
   }
-  return `I couldn't finish that: ${String(why).replace(/\.$/, '')}.`;
+  return `I couldn't finish that: ${plainAiError(String(why)).replace(/\.$/, '')}.`;
+}
+
+/**
+ * The AI service's own error, as the user should read it: what happened and
+ * what to do, not the provider's payload, codes and links.
+ */
+export function plainAiError(why: string): string {
+  const retry = why.match(/retry (?:in|after) ([\d.]+)\s*s/i)?.[1];
+  if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit|too many requests/i.test(why)) {
+    return `the AI's free usage limit is reached for now${retry ? `; try again in about ${Math.ceil(parseFloat(retry))} seconds`
+      : '; try again in a minute, and if it keeps happening, today\'s free limit is used up (it resets tomorrow)'}`;
+  }
+  if (/\b40[13]\b|API[_ ]?KEY[_ ]?INVALID|api key not valid|unauthori[sz]ed|permission denied|invalid x-api-key/i.test(why)) {
+    return 'the AI service rejected its key; check the key OpenClaw uses';
+  }
+  if (/\b50[0234]\b|overloaded|high demand|UNAVAILABLE/i.test(why)) {
+    return 'the AI service is busy or unreachable right now; try again in a minute';
+  }
+  // Anything else: its first sentence, without links or JSON.
+  const text = why.replace(/⚠️\s*/g, '').replace(/https?:\/\/\S+/g, '').replace(/\{[\s\S]*\}/g, '').replace(/\s+/g, ' ').trim();
+  const first = text.split(/(?<=\.)\s/)[0] || text;
+  return first.length > 160 ? `${first.slice(0, 157)}…` : first;
 }
 const PHASES: Record<string, string> = {
   preparing_context: 'Getting ready…', starting_model: 'Thinking…', memory_flushing: 'Tidying memory…',

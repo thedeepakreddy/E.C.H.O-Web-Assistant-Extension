@@ -3,7 +3,7 @@ import '../theme/glass.css';
 import './index.css';
 import { replaceSelection } from './writer';
 import { EchoAvatar, AvatarCues } from './avatar';
-import { CommandBar, QuickAction } from './command-bar';
+import { CommandBar, QuickAction, SavedTask } from './command-bar';
 import { ICONS } from '../theme/icons';
 import { pickVoice, VoiceGender } from './voice';
 import { REACTOR, DEFAULT_APPEARANCE, characterById, resolveAppearance, themeFor, themeVars } from '../characters';
@@ -272,8 +272,11 @@ export function EchoUI() {
           // Voices that report word positions keep the lip-sync exactly in step.
           if (isCurrent() && (!e.name || e.name === 'word')) avatarCueRef.current?.word(e.charIndex);
         };
+        // A voice that fails mid-sentence must not leave ECHO "speaking" (and deaf) for good.
         utterance.onerror = () => {
-          if (isCurrent()) setTalking(false);
+          if (!isCurrent()) return;
+          setTalking(false);
+          setStatus('idle');
         };
         utterance.onend = () => {
           if (!isCurrent()) return;
@@ -331,12 +334,22 @@ export function EchoUI() {
     };
   }, []);
 
+  // A new command interrupts ECHO mid-sentence; it is never silently dropped.
+  // (A request still running is replaced by the new one in the background.)
+  const hush = () => {
+    if (!window.speechSynthesis.speaking && status !== 'speaking') return;
+    utteranceRef.current = null;
+    window.speechSynthesis.cancel();
+    setTalking(false);
+  };
+
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) {
       e.preventDefault();
       if (Date.now() - trustedGestureAtRef.current > 1000) return;
     }
-    if (!inputText.trim() || status === 'thinking' || status === 'speaking') return;
+    if (!inputText.trim()) return;
+    hush();
     
     if (status === 'listening') {
       sendSpeechControl('stop');
@@ -362,6 +375,34 @@ export function EchoUI() {
 
   submitRef.current = () => handleSubmit();
 
+  // "Watch me": ECHO records the user's steps on this page; the recording bar
+  // at the top of the page has Done (name and save) and Cancel.
+  const startWatching = () => {
+    chrome.runtime.sendMessage({ type: 'ECHO_WORKFLOW', action: 'start' })
+      .then((r: any) => showLog(r?.success ? 'Watching. Do the task, then press Done at the top of the page.' : r?.error || 'Could not start watching.'))
+      .catch(() => showLog('ECHO is not responding. Reload the page and try again.'));
+    setChatVisible(false);
+  };
+
+  // Tasks the user showed ECHO, offered in the panel to do again.
+  const [tasks, setTasks] = useState<SavedTask[]>([]);
+  useEffect(() => {
+    if (!chatVisible) return;
+    chrome.runtime.sendMessage({ type: 'ECHO_WORKFLOW', action: 'list' })
+      .then((r: any) => { if (r?.success && Array.isArray(r.tasks)) setTasks(r.tasks.slice(0, 6)); }).catch(() => {});
+  }, [chatVisible]);
+  const runTask = (e: React.MouseEvent, name: string) => {
+    if (!e.nativeEvent.isTrusted) return;
+    hush();
+    showLog(`You: Do "${name}"`);
+    chrome.runtime.sendMessage({ type: 'ECHO_WORKFLOW', action: 'run', name }).catch(err => {
+      showLog(`Could not send: ${err?.message || 'extension unavailable'}`);
+      setStatus('error');
+    });
+    setChatVisible(false);
+    setStatus('thinking');
+  };
+
   const freshSelection = selection && Date.now() - selection.at < SELECTION_TTL_MS ? selection.text : null;
   const quickActions: QuickAction[] = [
     { id: 'summarize', label: 'Summarize', icon: ICONS.summarize,
@@ -374,16 +415,19 @@ export function EchoUI() {
       command: () => `translate this page into ${LANGUAGE_NAMES[speechLanguageRef.current.slice(0, 2)] || 'English'}` },
     { id: 'fill', label: 'Fill form', icon: ICONS.form,
       hint: 'Fill the form on this page from your profile (runs locally)', command: () => 'fill this form' },
-    { id: 'watch', label: 'Watch', icon: ICONS.watch,
-      hint: 'Check this page every hour and tell me when it changes', command: () => 'watch this page' },
+    { id: 'watch', label: 'Watch me', icon: ICONS.watch,
+      hint: 'Show ECHO a task once: it records your clicks and typing (never passwords). Next time, ECHO or an agent does it for you.',
+      command: () => '', run: startWatching },
     { id: 'tabs', label: 'My tabs', icon: ICONS.tabs,
       hint: 'List the tabs you have open', command: () => 'list my open tabs' },
   ];
 
   const runQuickAction = (e: React.MouseEvent, action: QuickAction) => {
-    if (!e.nativeEvent.isTrusted || status === 'thinking' || status === 'speaking') return;
+    if (!e.nativeEvent.isTrusted) return;
+    if (action.run) { hush(); action.run(); return; }
     const command = action.command();
     if (!command) return;
+    hush();
     if (status === 'listening') sendSpeechControl('stop');
     showLog(`You: ${action.label}`);
     chrome.runtime.sendMessage({ type: 'USER_INPUT', text: command }).catch(err => {
@@ -398,7 +442,7 @@ export function EchoUI() {
   const toggleMic = (e: React.MouseEvent) => {
     if (!e.nativeEvent.isTrusted) return;
     if (status === 'listening') { sendSpeechControl('stop'); return; }
-    if (status === 'thinking' || status === 'speaking') return;
+    hush();
     setInputText('');
     sendSpeechControl('start');
   };
@@ -601,6 +645,8 @@ export function EchoUI() {
         markTrusted={markTrusted}
         actions={quickActions}
         onAction={runQuickAction}
+        tasks={tasks}
+        onTask={runTask}
         onMic={toggleMic}
         onStop={stopEverything}
         onClose={() => setChatVisible(false)}

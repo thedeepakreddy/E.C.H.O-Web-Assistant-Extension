@@ -247,7 +247,10 @@ function loadRecorder(select, listeners = {}) {
   const document = {
     querySelectorAll: () => [select],
     addEventListener: (type, fn) => { listeners[type] = fn; }, removeEventListener: () => {},
-    createElement: () => ({ style: {}, remove() {} }), body: { appendChild() {} },
+    // The recording bar: a host element with a shadow root.
+    createElement: () => ({ style: {}, remove() {}, append() {}, setAttribute() {}, addEventListener() {}, focus() {}, select() {},
+      attachShadow: () => ({ replaceChildren() {} }) }),
+    body: { appendChild() {} }, documentElement: { appendChild() {} }, title: 'Test page',
   };
   const window = { addEventListener() {}, removeEventListener() {}, clearTimeout() {}, setTimeout() {} };
   const sent = [];
@@ -270,6 +273,18 @@ test('choosing a dropdown option is recorded as a select step, not a click', () 
   assert.equal(JSON.stringify(steps[0].options), '[{"value":"in","text":"India"}]');
   assert.equal(steps[0].label, 'Country');
   assert.equal(sent[0].type, 'ECHO_RECORD_STEP');
+});
+
+test('keys pressed in ECHO\'s own panel or recording bar are not part of the recording', () => {
+  const { select } = fakeSelect({ options: [['', 'Choose…']] });
+  const { recorder, listeners } = loadRecorder(select);
+  recorder.startRecording();
+  const echoUi = { tagName: 'INPUT', closest: sel => (/#echo-extension-root|#echo-rec-bar/.test(sel) ? {} : null) };
+  const page = { tagName: 'INPUT', closest: () => null };
+  listeners.keydown({ key: 'Enter', target: echoUi });
+  listeners.keydown({ key: 'Enter', target: page });
+  const { steps } = recorder.stopRecording().result;
+  assert.equal(JSON.stringify(steps.map(s => `${s.type}:${s.value}`)), '["key:Enter"]');
 });
 
 test('card expiry dropdowns are never recorded', () => {
@@ -316,6 +331,29 @@ test('workflow preview describes dropdown steps', async () => {
   const stub = () => ({ currentTaskEpoch: () => 0, safeNavigationUrl: url => url, say: () => {} });
   const wf = loadTs('src/background/workflow-engine.ts', { chrome: { storage }, crypto: webcrypto }, stub);
   assert.match(await wf.previewWorkflow('signup'), /1\. Choose "India" in Country/);
+});
+
+test('a saved task runs by its name alone; a request that changes it goes to a brain', async () => {
+  const stub = () => ({ currentTaskEpoch: () => 0, safeNavigationUrl: url => url, say: () => {} });
+  const { storage } = memoryStorage();
+  const wf = loadTs('src/background/workflow-engine.ts', { chrome: { storage }, crypto: webcrypto }, stub);
+  const all = { Callback: { name: 'Callback', steps: [], startUrl: '', created: 0, runs: 0 } };
+  assert.equal(wf.strictWorkflowKey(all, 'callback'), 'Callback');
+  assert.equal(wf.strictWorkflowKey(all, 'call'), 'Callback');
+  assert.equal(wf.strictWorkflowKey(all, 'callback again'), 'Callback');
+  assert.equal(wf.strictWorkflowKey(all, 'callback for Bob'), null, 'a replay would ignore "for Bob"');
+});
+
+test('an agent sees a task\'s steps with the text the user typed', async () => {
+  const { storage } = memoryStorage();
+  await storage.local.set({ echo_workflows: { Callback: { name: 'Callback', startUrl: 'https://shop.example/form', created: 0, runs: 0,
+    steps: [{ type: 'type', label: 'Full name', value: 'Ada Lovelace' }, { type: 'click', label: 'Request callback' }] } } });
+  const stub = () => ({ currentTaskEpoch: () => 0, safeNavigationUrl: url => url, say: () => {} });
+  const wf = loadTs('src/background/workflow-engine.ts', { chrome: { storage }, crypto: webcrypto }, stub);
+  const text = await wf.describeWorkflowSteps('callback');
+  assert.match(text, /"Callback", recorded on shop\.example \(2 steps\)/);
+  assert.match(text, /1\. type "Ada Lovelace" into Full name/);
+  assert.match(text, /2\. click Request callback/);
 });
 
 // ---------------------------------------------------------------------------

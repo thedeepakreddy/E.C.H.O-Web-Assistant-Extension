@@ -15,12 +15,12 @@
     "contextMenus",
     "notifications",
     "alarms",
-    "sidePanel"
+    "sidePanel",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
-
   "action": {
     "default_title": "Open ECHO Online"
   },
@@ -37,14 +37,24 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["speech.html", "approval.html", "characters/*"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "speech.html",
+        "approval.html",
+        "characters/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_end"
     }
   ],

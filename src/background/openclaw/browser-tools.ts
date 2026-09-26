@@ -14,7 +14,7 @@
 
 import { executeTool } from '../tools';
 import { leaseFor, leasesReady, tabAccessible } from '../agents/leases';
-import { listWorkflows, playWorkflow, findWorkflowKey, type PlayResult } from '../workflow-engine';
+import { listWorkflows, playWorkflow, findWorkflowKey, describeWorkflowSteps, type PlayResult } from '../workflow-engine';
 import { createWatcher, listWatchers, deleteWatcher, describeWatcher, type WatchCondition } from '../page-watcher';
 import { addEvidence, mentioned } from '../grounding';
 import type { InvokeContext, NodeTool, ToolResult } from './node-tools';
@@ -356,13 +356,18 @@ const IMPLS: Partial<Record<ToolName, Impl>> = {
       const all = Object.values(await listWorkflows());
       return all.length ? `Recorded workflows:\n${lines(all.map(w => `${w.name} (${w.steps.length} steps, run ${w.runs || 0} times)`))}` : 'The user has not recorded any workflows.';
     }
+    if (args.action === 'show') {
+      const steps = await describeWorkflowSteps(str(args.name, 60));
+      if (!steps) throw new ToolUseError(`No workflow named "${str(args.name, 60)}". List them first.`);
+      return steps;
+    }
     if (args.action === 'status') {
       const id = str(args.runId, 100);
       const run = workflowRuns.get(id);
       if (!run || run.character !== character) throw new ToolUseError('No such workflow run.');
       return waitForWorkflow(id, ctx);
     }
-    if (args.action !== 'run') throw new ToolUseError('action must be list, run or status.');
+    if (args.action !== 'run') throw new ToolUseError('action must be list, show, run or status.');
     const all = await listWorkflows();
     const key = findWorkflowKey(all, str(args.name, 60));
     if (!key) throw new ToolUseError(`No workflow named "${str(args.name, 60)}". List them first.`);
@@ -474,9 +479,9 @@ const DESCRIPTIONS: Partial<Record<ToolName, { description: string; parameters: 
     parameters: { type: 'object', properties: { offset: { type: 'number' } }, additionalProperties: false },
   },
   workflow: {
-    description: 'Workflows the user recorded: list them, run one in your current tab (it replays their steps without using the model), or check a run. If a run stops at a step, do that step with act and run again from the next step.',
+    description: 'Tasks the user showed you by recording them: list them, show one\'s steps, run one in your current tab (it replays their steps without using the model), or check a run. If a run stops at a step, do that step with act and run again from the next step. To do a task with changes (other text, another item), show it and do the steps yourself with act.',
     parameters: { type: 'object', required: ['action'], additionalProperties: false, properties: {
-      action: { type: 'string', enum: ['list', 'run', 'status'] }, name: { type: 'string' }, runId: { type: 'string' },
+      action: { type: 'string', enum: ['list', 'show', 'run', 'status'] }, name: { type: 'string' }, runId: { type: 'string' },
       fromStep: { type: 'number', description: 'run: continue from this step on the current page.' } } },
   },
   watch: {
