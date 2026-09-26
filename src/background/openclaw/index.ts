@@ -12,7 +12,7 @@ import { deviceIdentity, indexedDbKeyStore } from './identity';
 import { browserToolsFor, resetLooking } from './browser-tools';
 import { createSessionManager, type SessionManager } from './sessions';
 import { AVATAR_AGENTS, allCommands, avatarByCharacter } from './registry';
-import { TESTED_OPENCLAW } from './setup-script';
+import { TESTED_OPENCLAW, setupScript, setupCommand } from './setup-script';
 import { leaseFor, leasesReady, listLeases, onLeaseChange } from '../agents/leases';
 import { sayAs, setStateAs, draftAs } from '../bus';
 import { addEvidence, resetEvidence, unverifiedClaims } from '../grounding';
@@ -297,6 +297,42 @@ export async function openClawStatus(): Promise<OpenClawStatus> {
   const s = await settings();
   return { enabled: s.enabled, url: s.url, hasToken: !!s.sharedToken, node: roleState.node, operator: roleState.operator,
     serverVersion, testedVersion: TESTED_OPENCLAW, commands: commandApproval, ready: allReady() };
+}
+
+/**
+ * Agent mode in one step: ECHO makes the token it will pair with, turns
+ * agent mode on, and returns the one command that sets up this computer's
+ * gateway with that token and approves this ECHO (by its device id). The
+ * user never copies a token or approves anything by hand.
+ */
+export async function openClawSetupCommand(): Promise<{ command: string; script: string }> {
+  const { token, deviceId } = await prepareOpenClawPairing();
+  const script = setupScript(chrome.runtime.id, chrome.runtime.getManifest().version, { token, deviceId });
+  return { command: await setupCommand(script), script };
+}
+
+/**
+ * Turn agent mode on in ECHO and say how the gateway should know this ECHO:
+ * the token it will pair with (made here, never copied by the user) and its
+ * device id. Connecting starts at once and keeps retrying until the gateway
+ * is set up with them.
+ */
+export async function prepareOpenClawPairing(): Promise<{ token: string; deviceId: string }> {
+  const saved = await settings();
+  const token = saved.sharedToken && /^[0-9a-f]{32,128}$/i.test(saved.sharedToken) ? saved.sharedToken : randomToken();
+  await chrome.storage.local.set({ [SETTINGS_KEY]: { enabled: true, url: saved.url, sharedToken: token } });
+  const { deviceId } = await deviceIdentity(indexedDbKeyStore);
+  return { token, deviceId };
+}
+
+/** Connect again now (the gateway just started), instead of at the next retry. */
+export function reconnectOpenClaw(): void {
+  start().catch(error => console.error('[ECHO] OpenClaw restart failed:', error));
+}
+
+function randomToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export async function saveOpenClawSettings(patch: Partial<OpenClawSettings>): Promise<void> {

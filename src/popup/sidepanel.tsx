@@ -4,6 +4,7 @@ import './sidepanel.css';
 import { useAppearance } from '../theme/page-theme';
 import { ICONS } from '../theme/icons';
 import { CHARACTERS, REACTOR, characterById, characterAsset, themeFor, themeVars } from '../characters';
+import { AgentSetup, useAgentMode, PHASE_TEXT } from './agent-setup';
 
 interface Source { title: string; url: string }
 interface Msg {
@@ -23,11 +24,14 @@ interface AgentInfo { agent: string; tabId: number; children: number[]; title: s
 
 /** The classic, unassigned ECHO thread. */
 const DEFAULT_VIEW = 'default';
-// Set once the user hides the "give this tab to an avatar" tip.
-const HINT_KEY = 'echo_openclaw_hint_dismissed';
 // Every avatar is called Echo; the tagline tells them apart. The orb is the core.
 const AVATARS = [...CHARACTERS.map(c => ({ id: c.id, tagline: c.tagline })), { id: REACTOR, tagline: 'Core' }];
 const taglineOf = (id: string) => AVATARS.find(a => a.id === id)?.tagline || 'Core';
+// One word per avatar, for places with room for a word: "Style", "Analyst".
+const SHORT: Record<string, string> = { echo: 'Lab', 'echo-style': 'Style', 'echo-officer': 'Safety', 'echo-patrol': 'Patrol', 'echo-visionary': 'Tech', [REACTOR]: 'Core' };
+const shortOf = (id: string) => SHORT[id] || taglineOf(id).split(' ').pop()!.replace(/^./, c => c.toUpperCase());
+// Things to try in a new avatar's thread; a tap puts one in the message box.
+const STARTERS = ['Summarize this page', 'Find the cheapest item here', 'Fill in this form for me'];
 const ownsTab = (a: AgentInfo, tabId: number | null) => tabId != null && (a.tabId === tabId || a.children.includes(tabId));
 
 /** A small round portrait for an avatar; the orb for the reactor. */
@@ -74,11 +78,11 @@ function Panel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [chat, setChat] = useState<ChatInfo>({ activeId: null, temporary: false, title: 'New chat' });
   const [input, setInput] = useState('');
+  // What is running right now (shows Stop); notices are messages that come and go.
   const [status, setStatus] = useState('');
+  const [notice, setNotice] = useState('');
   // An avatar's reply while it is being written; replaced by the reply itself.
   const [draft, setDraft] = useState('');
-  const [usage, setUsage] = useState<{ steps: number; taskTokens: number; sessionTokens: number } | null>(null);
-  const [report, setReport] = useState('');
   const [approval, setApproval] = useState<Approval | null>(null);
   const [actions, setActions] = useState<ActionLog[]>([]);
   const [site, setSite] = useState<{ url: string; host: string; allowed: boolean; eligible: boolean } | null>(null);
@@ -98,41 +102,41 @@ function Panel() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const agentsRef = useRef<AgentInfo[]>([]);
   const [rosterOpen, setRosterOpen] = useState(false);
-  // Avatars run as OpenClaw agents once the gateway is Ready; the classic
-  // ECHO always uses the built-in brain. The panel says which one answers.
-  const [openClawReady, setOpenClawReady] = useState(false);
-  const [hintDismissed, setHintDismissed] = useState(() => {
-    try { return localStorage.getItem(HINT_KEY) === '1'; } catch { return false; }
-  });
+  // Agent mode: avatars run as OpenClaw agents once it is on; the classic ECHO
+  // always uses the built-in brain. The header shows where it stands.
+  const agentMode = useAgentMode();
+  const phase = agentMode.phase;
+  const openClawReady = phase === 'ready';
+  const [setupOpen, setSetupOpen] = useState(false);
+  // Everything that is not a conversation lives behind one menu.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLSpanElement>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
   const activeTabRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // The menu closes like any menu: a click elsewhere, or Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (e: PointerEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onPointer); document.removeEventListener('keydown', onKey); };
+  }, [menuOpen]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
-  const flash = (text: string) => {
-    setStatus(text);
-    setTimeout(() => setStatus(s => (s === text ? '' : s)), 4000);
+  const flash = (text: string, ms = 4000) => {
+    setNotice(text);
+    setTimeout(() => setNotice(n => (n === text ? '' : n)), ms);
   };
+  const warn = (text: string) => flash(text, 7000);
 
-  const refreshReport = () => {
-    chrome.runtime.sendMessage({ type: 'ECHO_ROUTER_REPORT' })
-      .then((r: any) => { if (r?.text) setReport(r.text); })
-      .catch(() => {});
-  };
   const refreshSkills = () => {
     chrome.runtime.sendMessage({ type: 'ECHO_SKILLS_LIST' })
       .then((r: any) => { if (r?.success) setSkills(r.skills); })
       .catch(() => {});
-  };
-  const refreshOpenClaw = () => {
-    chrome.runtime.sendMessage({ type: 'ECHO_OPENCLAW_STATUS' })
-      .then((r: any) => { if (r?.success) setOpenClawReady(!!r.status.ready); })
-      .catch(() => {});
-  };
-  const dismissHint = () => {
-    setHintDismissed(true);
-    try { localStorage.setItem(HINT_KEY, '1'); } catch { /* the hint just returns next time */ }
   };
   const refreshIsolation = () => {
     chrome.runtime.sendMessage({ type: 'ECHO_ISOLATION_STATUS' })
@@ -171,7 +175,6 @@ function Panel() {
     setView(next);
     setMessages([]);
     setDraft('');
-    setUsage(null);
     setStatus('');
     if (next === DEFAULT_VIEW) {
       chrome.runtime.sendMessage({ type: 'ECHO_CHAT_STATE_REQUEST' })
@@ -190,14 +193,30 @@ function Panel() {
   const assignAvatar = (agent: string) => {
     chrome.runtime.sendMessage({ type: 'ECHO_AGENT_ASSIGN', agent, tabId: activeTabRef.current ?? undefined })
       .then((r: any) => {
-        if (!r?.success) throw new Error(r?.error || 'Could not assign the avatar.');
+        if (!r?.success) throw new Error(r?.error || 'Could not assign the agent.');
         applyAgents(r.agents);
-        setRosterOpen(false);
+        closeRoster();
         showView(agent);
         flash(`Echo · ${taglineOf(agent)} now works in this tab.`);
       })
-      .catch(error => setStatus(error?.message || 'Could not assign the avatar.'));
+      .catch(error => warn(error?.message || 'Could not assign the agent.'));
   };
+  const openRoster = (setup = false) => {
+    setRosterOpen(true);
+    setSetupOpen(setup);
+    setHistoryOpen(false);
+    refreshAgents();
+  };
+  const closeRoster = () => { setRosterOpen(false); setSetupOpen(false); };
+  useEffect(() => {
+    if (agentMode.installCommand || agentMode.needsKey) { setRosterOpen(true); setSetupOpen(true); setHistoryOpen(false); }
+  }, [agentMode.installCommand, agentMode.needsKey]);
+  // Opened from the in-page panel to set agent mode up.
+  useEffect(() => {
+    chrome.storage.session.get('echo_panel_view').then(r => {
+      if (r.echo_panel_view === 'agent-setup') { openRoster(true); chrome.storage.session.remove('echo_panel_view').catch(() => {}); }
+    }).catch(() => {});
+  }, []);
   const releaseAvatar = (agent: string) => {
     chrome.runtime.sendMessage({ type: 'ECHO_AGENT_RELEASE', agent })
       .then((r: any) => { if (r?.success) applyAgents(r.agents); })
@@ -222,7 +241,7 @@ function Panel() {
       const r: any = await chrome.runtime.sendMessage({ type: site.allowed ? 'ECHO_FORGET_SITE' : 'ECHO_ALLOW_SITE', url: site.url });
       if (!r?.success) throw new Error(r?.error || 'Could not update this site.');
       flash(site.allowed ? `Forgot ${r.host}.` : `Remembering ${r.host}. Reload the tab to save this page.`);
-    } catch (error: any) { setStatus(error?.message || 'Could not update this site.'); }
+    } catch (error: any) { warn(error?.message || 'Could not update this site.'); }
     refreshSite();
   };
 
@@ -248,10 +267,8 @@ function Panel() {
     chrome.storage.local.get(['echo_action_log'], r => {
       if (Array.isArray(r.echo_action_log)) setActions(r.echo_action_log.slice(-8));
     });
-    refreshReport();
     refreshSkills();
     refreshIsolation();
-    refreshOpenClaw();
     // Leases first, then the tab in front decides which thread shows.
     chrome.runtime.sendMessage({ type: 'ECHO_AGENT_LIST' })
       .then((r: any) => { if (r?.success) applyAgents(r.agents); })
@@ -267,24 +284,20 @@ function Panel() {
     const THREAD_TRAFFIC = ['ECHO_SAY', 'ECHO_USER_ECHO', 'ECHO_STATE', 'ECHO_USAGE', 'ECHO_TASK_STATUS'];
     const onMessage = (m: any) => {
       if (m.type === 'ECHO_AGENTS_CHANGED') { applyAgents(m.agents || []); followTab(activeTabRef.current); return; }
-      if (m.type === 'ECHO_OPENCLAW_STATUS_CHANGED') { refreshOpenClaw(); return; }
       if (m.type === 'ECHO_DRAFT') { if (m.agent === viewRef.current) setDraft(String(m.text || '')); return; }
       // Each avatar talks in its own thread; only the one on screen updates it.
       if (THREAD_TRAFFIC.includes(m.type) && (m.agent || DEFAULT_VIEW) !== viewRef.current) {
-        if (m.type === 'ECHO_TASK_STATUS') { refreshAgents(); if (!m.active) refreshReport(); }
+        if (m.type === 'ECHO_TASK_STATUS') refreshAgents();
         return;
       }
       if (m.type === 'ECHO_SAY') {
         setDraft('');
         setMessages(prev => [...prev, { role: 'echo', text: m.text, tier: m.tier, sources: m.sources, searchHtml: m.searchHtml, unverified: m.unverified }]);
-        refreshReport();
         refreshIsolation();
       } else if (m.type === 'ECHO_USER_ECHO') {
         setMessages(prev => [...prev, { role: 'user', text: m.text }]);
       } else if (m.type === 'ECHO_STATE') {
         setStatus(m.state === 'Idle' ? '' : m.state);
-      } else if (m.type === 'ECHO_USAGE') {
-        setUsage({ steps: m.steps, taskTokens: m.taskTokens, sessionTokens: m.sessionTokens });
       } else if (m.type === 'ECHO_APPROVAL_REQUEST') {
         setApproval({ id: m.id, action: m.action, detail: m.detail, site: m.site, tabId: m.tabId });
       } else if (m.type === 'ECHO_APPROVAL_CLEAR') {
@@ -297,8 +310,7 @@ function Panel() {
         setMessages([]);
         setStatus('');
       } else if (m.type === 'ECHO_TASK_STATUS') {
-        // A task ends after the router has counted it, so the counter is current now.
-        if (!m.active) { setStatus(''); refreshReport(); }
+        if (!m.active) setStatus('');
         refreshAgents();
       }
     };
@@ -316,12 +328,12 @@ function Panel() {
     if (historyOpen) { setHistoryOpen(false); return; }
     chrome.runtime.sendMessage({ type: 'ECHO_CHAT_LIST' })
       .then((r: any) => { if (r?.success) { setHistory(r.chats); setHistoryOpen(true); } })
-      .catch(error => setStatus(`Could not load history: ${error?.message || 'extension unavailable'}`));
+      .catch(error => warn(`Could not load history: ${error?.message || 'extension unavailable'}`));
   };
   const startChat = (temporary: boolean) => {
     chrome.runtime.sendMessage({ type: 'ECHO_CHAT_NEW', temporary })
       .then((r: any) => { if (r?.success) { applyChatState(r.state); setHistoryOpen(false); setStatus(''); } })
-      .catch(error => setStatus(`Could not start a chat: ${error?.message || 'extension unavailable'}`));
+      .catch(error => warn(`Could not start a chat: ${error?.message || 'extension unavailable'}`));
   };
   const openChat = (id: string) => {
     chrome.runtime.sendMessage({ type: 'ECHO_CHAT_OPEN', id })
@@ -330,7 +342,7 @@ function Panel() {
         applyChatState(r.state);
         setHistoryOpen(false);
       })
-      .catch(error => setStatus(error?.message || 'Could not open chat'));
+      .catch(error => warn(error?.message || 'Could not open chat'));
   };
   const deleteChat = (id: string) => {
     chrome.runtime.sendMessage({ type: 'ECHO_CHAT_DELETE', id })
@@ -415,7 +427,8 @@ function Panel() {
       type: 'USER_INPUT', text, agent: view,
       tabs: mentions.map(m => m.id), webSearch, isolated: isolated && view === DEFAULT_VIEW,
     }).catch(error => {
-      setStatus(`Could not send: ${error?.message || 'extension unavailable'}`);
+      setStatus('');
+      warn(`Could not send: ${error?.message || 'extension unavailable'}`);
       setInput(text);
     });
     setInput('');
@@ -424,7 +437,6 @@ function Panel() {
     setIsolated(false);
     setMenu(null);
     setStatus(isolated ? 'Opening the private window…' : webSearch ? 'Searching the web…' : 'Thinking...');
-    setUsage(u => (u ? { ...u, steps: 0, taskTokens: 0 } : u)); // reset task portion; keep session
   };
 
   const answerApproval = (approved: boolean) => {
@@ -447,7 +459,7 @@ function Panel() {
         refreshSkills();
         flash(`Saved skill /${r.skill.shortcut}. Type / to use it.`);
       })
-      .catch(error => setStatus(error?.message || 'Could not save skill'));
+      .catch(error => warn(error?.message || 'Could not save skill'));
   };
 
   const toggleIsolated = () => {
@@ -455,7 +467,6 @@ function Panel() {
     setIsolated(v => !v);
   };
 
-  const reportLines = report ? report.split('\n') : [];
   const items = menuItems();
   const onAvatar = view !== DEFAULT_VIEW;
   const viewAgent = agents.find(a => a.agent === view);
@@ -473,18 +484,31 @@ function Panel() {
         <span className="echo-heading">
           <span className="echo-title" title={chat.title}>{onAvatar ? `Echo · ${taglineOf(view)}`
             : chat.temporary ? 'Temporary chat' : chat.title === 'New chat' ? (character?.name || 'ECHO') : chat.title}</span>
-          <span className="echo-subtitle">{status || (onAvatar ? `In ${viewAgent?.title || 'its tab'} · ${openClawReady ? 'on OpenClaw' : 'built-in brain'}`
+          <span className="echo-subtitle">{status || (onAvatar ? `In ${viewAgent?.title || 'its tab'} · ${openClawReady ? 'agent mode' : 'built-in brain'}`
             : chat.temporary ? 'Not saved to history' : 'Online')}</span>
         </span>
         <span className="echo-toolbar-group">
-        <button className={`echo-icon ${rosterOpen ? 'on' : ''}`} onClick={() => { setRosterOpen(o => !o); setHistoryOpen(false); refreshAgents(); }}
-          title="Avatars: give a tab to an Echo" aria-label="Avatars">{ICONS.avatars}</button>
-        {!onAvatar && <>
-        <button className={`echo-icon ${historyOpen ? 'on' : ''}`} onClick={openHistory} title="Chat history" aria-label="Chat history">{ICONS.history}</button>
-        <button className={`echo-icon ${chat.temporary ? 'on' : ''}`} onClick={() => startChat(!chat.temporary)}
-          title={chat.temporary ? 'Leave temporary chat' : 'Temporary chat: not saved to history'} aria-label="Temporary chat">{ICONS.ghost}</button>
-        <button className="echo-icon" onClick={() => startChat(chat.temporary)} title="New chat" aria-label="New chat">{ICONS.plus}</button>
-        </>}
+        <button className={`echo-agents-pill ${rosterOpen ? 'on' : ''}`} onClick={() => (rosterOpen ? closeRoster() : openRoster())}
+          title={`Assign an agent to a tab. ${PHASE_TEXT[phase].title}.`} aria-label={`Assign Agent. ${PHASE_TEXT[phase].title}`}>
+          <i className="echo-agents-dot" data-phase={phase} aria-hidden="true" />Assign Agent
+        </button>
+        {!onAvatar && <button className="echo-icon" onClick={() => startChat(chat.temporary)} title="New chat" aria-label="New chat">{ICONS.plus}</button>}
+        <span className="echo-menu-wrap" ref={menuRef}>
+          <button className={`echo-icon ${menuOpen ? 'on' : ''}`} onClick={() => setMenuOpen(o => !o)} title="More" aria-label="More"
+            aria-haspopup="menu" aria-expanded={menuOpen}>{ICONS.more}</button>
+          {menuOpen && (
+            <div className="echo-more-menu" role="menu" onClick={() => setMenuOpen(false)}>
+              {!onAvatar && <button role="menuitem" onClick={openHistory}>{ICONS.history}Chat history</button>}
+              {!onAvatar && <button role="menuitem" onClick={() => startChat(!chat.temporary)}>
+                {ICONS.ghost}{chat.temporary ? 'Leave temporary chat' : 'Temporary chat'}</button>}
+              {site && (site.allowed || site.eligible) && <button role="menuitem" onClick={toggleSite}>
+                {ICONS.lightbulb}{site.allowed ? `Forget ${site.host}` : `Remember ${site.host}`}</button>}
+              {actions.length > 0 && <button role="menuitem" onClick={() => { setActionsOpen(true); setHistoryOpen(false); closeRoster(); }}>
+                {ICONS.watch}Recent actions</button>}
+              <button role="menuitem" onClick={() => chrome.runtime.openOptionsPage()}>{ICONS.settings}Settings</button>
+            </div>
+          )}
+        </span>
         </span>
       </header>
 
@@ -500,33 +524,14 @@ function Panel() {
               {a.working && <i className="echo-thread-busy" aria-label="working" />}
             </button>
           ))}
-        </div>
-      )}
-
-      {!onAvatar && openClawReady && agents.length === 0 && site && !hintDismissed && (
-        <div className="echo-site echo-hint">
-          <span>Tasks here use ECHO's built-in brain. To run one as an OpenClaw agent, give this tab to an avatar.</span>
-          <button onClick={() => { setRosterOpen(true); setHistoryOpen(false); refreshAgents(); }}>Choose avatar</button>
-          <button className="echo-hint-close" onClick={dismissHint} aria-label="Hide this tip" title="Hide this tip">{ICONS.close}</button>
+          <button className="echo-thread echo-thread-add" onClick={() => openRoster()} title="Assign an agent to another tab" aria-label="Assign Agent">
+            {ICONS.plus}
+          </button>
         </div>
       )}
 
       {chat.temporary && (
         <div className="echo-temp-banner">Temporary chat: not saved to history, and answers aren't cached.</div>
-      )}
-
-      {reportLines.length > 0 && (
-        <div className="echo-router" title="How many requests were answered without spending API quota">
-          <div className="echo-router-main">{reportLines[0]}</div>
-          {reportLines[1] && <div className="echo-router-sub">{reportLines[1]}</div>}
-        </div>
-      )}
-
-      {usage && (
-        <div className="echo-usage" title="Cloud API usage — steps are API round-trips this task">
-          {usage.steps} {usage.steps === 1 ? 'step' : 'steps'} · {fmt(usage.taskTokens)} tokens this task
-          <span className="echo-usage-session"> · {fmt(usage.sessionTokens)} session</span>
-        </div>
       )}
 
       {approval && (
@@ -540,16 +545,6 @@ function Panel() {
         </div>
       )}
 
-      {site && (
-        <div className="echo-site" title="Pages are only remembered on sites you allow. Nothing leaves this device.">
-          <span>{site.allowed ? 'Remembering' : 'Page memory off for'} {site.host}</span>
-          <button onClick={toggleSite} disabled={!site.allowed && !site.eligible}
-            title={!site.allowed && !site.eligible ? 'This site is excluded to protect private data' : undefined}>
-            {site.allowed ? 'Forget site' : site.eligible ? 'Remember site' : 'Private site'}
-          </button>
-        </div>
-      )}
-
       {isolation?.open && (
         <div className="echo-site">
           <span>Private agent window is open</span>
@@ -557,38 +552,78 @@ function Panel() {
         </div>
       )}
 
-      {actions.length > 0 && (
-        <details className="echo-actions"><summary>Recent actions</summary>
-          {actions.map((a, i) => <div key={`${a.ts}-${i}`}>{a.status}: {a.detail}</div>)}
-        </details>
-      )}
-
       <div className="echo-body">
         {rosterOpen && (
-          <div className="echo-history echo-roster" role="dialog" aria-label="Avatars">
+          <div className="echo-history echo-sheet" role="dialog" aria-label={setupOpen ? 'Agent mode' : 'Assign Agent'}>
             <div className="echo-history-head">
-              <strong>Avatars</strong>
-              <button className="echo-icon" onClick={() => setRosterOpen(false)} aria-label="Close avatars">{ICONS.close}</button>
+              {setupOpen
+                ? <button className="echo-sheet-back" onClick={() => setSetupOpen(false)}>‹ Assign Agent</button>
+                : <strong>Assign Agent</strong>}
+              <button className="echo-icon" onClick={closeRoster} aria-label="Close">{ICONS.close}</button>
             </div>
-            <div className="echo-roster-hint">Give a tab to an Echo: it works there on its own, alongside the others.</div>
-            {AVATARS.map(({ id, tagline }) => {
-              const lease = agents.find(a => a.agent === id);
-              const tabTaken = !!inFront && inFront.agent !== id;
-              return (
-                <div key={id} className={`echo-history-row echo-roster-row ${lease ? 'active' : ''}`}>
-                  <Portrait id={id} size={34} />
-                  <span className="echo-roster-text">
-                    <span>Echo · {tagline}</span>
-                    <small>{lease ? `${lease.working ? 'Working in' : 'In'} ${lease.title || 'a tab'}` : 'Not assigned'}</small>
-                  </span>
-                  {lease && <button className="echo-roster-action" onClick={() => { showView(id); setRosterOpen(false); }}>Open</button>}
-                  {lease && <button className="echo-roster-action" onClick={() => releaseAvatar(id)}>Release</button>}
-                  {!lease && <button className="echo-roster-action primary" disabled={!site || tabTaken}
-                    title={!site ? 'Open a regular web page first' : tabTaken ? 'This tab already has an avatar' : 'Assign to the tab in front'}
-                    onClick={() => assignAvatar(id)}>Assign here</button>}
-                </div>
-              );
-            })}
+            {setupOpen ? (<>
+              <strong className="echo-sheet-title">Agent mode</strong>
+              <AgentSetup mode={agentMode} onDone={() => setSetupOpen(false)} doneLabel="Assign an agent" />
+            </>) : (<>
+              <div className="echo-mode-row" data-phase={phase}>
+                {agentMode.busy ? <i className="agent-spinner" aria-hidden="true" /> : <i className="echo-agents-dot" data-phase={phase} aria-hidden="true" />}
+                <span className="echo-mode-text">
+                  <strong>{agentMode.busy ? 'Turning agent mode on…' : PHASE_TEXT[phase].title}</strong>
+                  <small>{agentMode.busy ? agentMode.step || 'Starting…'
+                    : agentMode.error || (phase === 'off' ? 'Turn it on and agents work on their own, with an AI on this computer.' : PHASE_TEXT[phase].detail)}</small>
+                </span>
+                {!agentMode.busy && (phase === 'ready'
+                  ? <button className="echo-mode-action" onClick={() => setSetupOpen(true)}>Details</button>
+                  : <button className="echo-roster-action primary" onClick={() => agentMode.turnOn({ useEchoKey: true })}>Turn on</button>)}
+              </div>
+              <div className="echo-tab-context">
+                {!site ? 'Open a web page to assign an agent to it.'
+                  : inFront ? <>This tab is with <b>Echo · {taglineOf(inFront.agent)}</b>.</>
+                  : <>Choose an agent for <b>{site.host}</b>. It works there on its own.</>}
+              </div>
+              <div className="echo-avatar-grid">
+                {AVATARS.map(({ id, tagline }) => {
+                  const lease = agents.find(a => a.agent === id);
+                  const here = !!lease && ownsTab(lease, activeTabId);
+                  const tabTaken = !!inFront && inFront.agent !== id;
+                  return (
+                    <div key={id} className={`echo-avatar-card${lease ? ' assigned' : ''}${here ? ' here' : ''}`}>
+                      <Portrait id={id} size={44} />
+                      <span className="echo-avatar-name">{tagline}</span>
+                      <small className="echo-avatar-where" title={lease?.title}>
+                        {here ? 'On this tab' : lease ? `${lease.working ? 'Working in' : 'In'} ${lease.title || 'a tab'}` : 'Free'}
+                      </small>
+                      {lease ? (
+                        <span className="echo-avatar-actions">
+                          <button className="echo-roster-action primary" onClick={() => { showView(id); closeRoster(); }}>Open</button>
+                          <button className="echo-roster-action" onClick={() => releaseAvatar(id)} title="Stop it and free the tab">Release</button>
+                        </span>
+                      ) : (
+                        <button className="echo-roster-action primary" disabled={!site || tabTaken}
+                          title={!site ? 'Open a regular web page first' : tabTaken ? 'This tab already has an agent' : `Assign Echo · ${tagline} to this tab`}
+                          onClick={() => assignAvatar(id)}>Assign</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>)}
+          </div>
+        )}
+        {actionsOpen && (
+          <div className="echo-history" role="dialog" aria-label="Recent actions">
+            <div className="echo-history-head">
+              <strong>Recent actions</strong>
+              <button className="echo-icon" onClick={() => setActionsOpen(false)} aria-label="Close">{ICONS.close}</button>
+            </div>
+            <div className="echo-roster-note">What Echo and its agents did in your browser. Paying and sending always ask you first.</div>
+            {[...actions].reverse().map((a, i) => (
+              <div key={`${a.ts}-${i}`} className="echo-action-row">
+                <span className={`echo-action-status ${a.status}`}>{a.status}</span>
+                <span>{a.detail}</span>
+                <small>{when(a.ts)}</small>
+              </div>
+            ))}
           </div>
         )}
         {historyOpen && (
@@ -616,7 +651,17 @@ function Panel() {
             <div className="echo-empty">
               <span className="echo-empty-portrait-wrap"><Portrait id={view} size={72} /></span>
               <div className="echo-empty-title">Echo · {taglineOf(view)}</div>
-              <div>Assigned to {viewAgent?.title || 'a tab'}. Give it a task; it stays in that tab and the tabs it opens.</div>
+              <div>Working in {viewAgent?.title || 'its tab'}. Give it a task: it stays in that tab and the tabs it opens.</div>
+              <div className="echo-empty-hints">
+                {STARTERS.map(text => (
+                  <button key={text} className="echo-starter" onClick={() => { setInput(text); inputRef.current?.focus(); }}>{text}</button>
+                ))}
+              </div>
+              {!openClawReady && (
+                <button className="echo-empty-link" onClick={() => openRoster(true)}>
+                  Uses Echo's built-in brain now. Turn on agent mode for longer tasks
+                </button>
+              )}
             </div>
           )}
           {messages.length === 0 && !onAvatar && (
@@ -625,9 +670,30 @@ function Panel() {
               <div className="echo-empty-title">Hi, I'm {character?.name || 'ECHO'}.</div>
               <div>Ask me anything, or give me a task on this page.</div>
               <div className="echo-empty-hints">
-                <span><b>/</b>Skills</span><span><b>@</b>Attach a tab</span>
-                <span>{ICONS.globe}Web search</span><span>{ICONS.incognito}Private window</span>
+                <button onClick={() => { setInput('/'); updateMenu('/', 1); inputRef.current?.focus(); }}><b>/</b>Skills</button>
+                <button onClick={() => { setInput('@'); updateMenu('@', 1); inputRef.current?.focus(); }}><b>@</b>Attach a tab</button>
+                <button className={webSearch ? 'on' : ''} onClick={() => { setWebSearch(v => !v); inputRef.current?.focus(); }}>{ICONS.globe}Web search</button>
+                <button className={isolated ? 'on' : ''} onClick={() => { toggleIsolated(); inputRef.current?.focus(); }}>{ICONS.incognito}Private window</button>
               </div>
+              {site && !inFront && (
+                <div className="echo-handoff">
+                  <div className="echo-handoff-title">Or assign an agent to this tab</div>
+                  <div className="echo-handoff-row">
+                    {AVATARS.map(({ id, tagline }) => {
+                      const lease = agents.find(a => a.agent === id);
+                      return (
+                        <button key={id} className="echo-handoff-avatar" disabled={!!lease} onClick={() => assignAvatar(id)}
+                          title={lease ? `Echo · ${tagline} is in ${lease.title || 'another tab'}` : `Assign Echo · ${tagline} to this tab`}>
+                          <Portrait id={id} size={38} /><span>{shortOf(id)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button className="echo-empty-link" onClick={() => openRoster(phase !== 'ready')}>
+                    {phase === 'ready' ? 'Agent mode is on: agents work on their own' : 'What are agents? Turn on agent mode'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {messages.map((m, i) => {
@@ -668,6 +734,7 @@ function Panel() {
             </div>
           )}
           {status && <div className="echo-status">{status}</div>}
+          {notice && <div className="echo-status echo-notice" role="status">{notice}</div>}
         </div>
       </div>
 

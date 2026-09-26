@@ -58,6 +58,8 @@ async function loadRecording(): Promise<RecordingState | null> {
 
 export async function isRecording(): Promise<boolean> { return (await loadRecording()) !== null; }
 export async function recordingTab(): Promise<number | null> { return (await loadRecording())?.tabId ?? null; }
+/** Steps recorded so far, across every page of the recording. */
+export async function recordingCount(): Promise<number> { await recordingWrites; return (await loadRecording())?.steps.length ?? 0; }
 
 export async function startRecording(tabId: number, startUrl: string): Promise<void> {
   if (!isSafeWorkflowUrl(startUrl)) throw new Error('Workflows cannot record sign-in or token-bearing URLs.');
@@ -185,6 +187,38 @@ export function findWorkflowKey(all: Record<string, Workflow>, name: string): st
   if (exact) return exact;
   const contains = keys.find(k => k.toLowerCase().includes(n) || n.includes(k.toLowerCase()));
   return contains || null;
+}
+
+/**
+ * The workflow a request names, and nothing looser: "run callback" or "run
+ * call" finds "Callback", but "do callback for Bob" does not, because replaying
+ * the recording would ignore "for Bob". Such requests go to a brain instead.
+ */
+export function strictWorkflowKey(all: Record<string, Workflow>, name: string): string | null {
+  const n = name.toLowerCase().replace(/\s+(again|now|please|for me|task|workflow)$/g, '').trim();
+  if (n.length < 2) return null;
+  const keys = Object.keys(all);
+  return keys.find(k => k.toLowerCase() === n) || keys.find(k => k.toLowerCase().includes(n)) || null;
+}
+
+/** A workflow's steps as an agent needs them: what each does, on which control, with the recorded text. */
+export async function describeWorkflowSteps(name: string): Promise<string | null> {
+  const all = await listWorkflows();
+  const key = findWorkflowKey(all, name);
+  if (!key) return null;
+  const wf = all[key];
+  const clip = (v: string) => (v.length > 80 ? `${v.slice(0, 80)}…` : v);
+  const lines = wf.steps.map((step, i) => `${i + 1}. ${
+    step.type === 'navigate' ? `go to ${isSafeWorkflowUrl(step.url || '') ? step.url : '[private URL]'}` :
+    step.type === 'type' ? `type "${clip(step.value || '')}" into ${step.label || 'a field'}` :
+    step.type === 'select' ? `choose ${(step.options || []).map(o => `"${o.text || o.value}"`).join(', ')} in ${step.label || 'a dropdown'}` :
+    step.type === 'key' ? `press ${step.value || 'a key'}` :
+    step.type === 'scroll' ? 'scroll' :
+    step.type === 'wait' ? 'wait' :
+    `click ${step.label || 'an element'}`}`);
+  let host = '';
+  try { host = wf.startUrl ? new URL(wf.startUrl).host : ''; } catch { /* stored checked */ }
+  return `"${key}"${host ? `, recorded on ${host}` : ''} (${wf.steps.length} steps):\n${lines.join('\n')}`;
 }
 
 export async function previewWorkflow(name: string): Promise<string> {

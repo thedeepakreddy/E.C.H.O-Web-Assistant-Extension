@@ -152,6 +152,34 @@
   50% { opacity: 0.45; }
 }
 
+/* Agent mode: off (turn on), turning on, on. */
+#echo-root-wrapper .cmd-agent {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--e-bubble-rim);
+  background: var(--e-bubble-fill);
+  color: var(--e-text);
+  font: 600 11.5px/1 var(--e-font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+#echo-root-wrapper button.cmd-agent:hover { background: var(--e-bubble-fill-hover); }
+#echo-root-wrapper .cmd-agent i { width: 7px; height: 7px; border-radius: 50%; background: var(--e-text-3); }
+#echo-root-wrapper .cmd-agent.on i { background: #34c759; box-shadow: 0 0 6px rgba(52, 199, 89, 0.7); }
+#echo-root-wrapper .cmd-agent.busy { cursor: default; color: var(--e-text-2); }
+#echo-root-wrapper .cmd-agent .cmd-agent-spin {
+  width: 11px; height: 11px; background: none;
+  border: 2px solid color-mix(in srgb, var(--glow) 30%, transparent); border-top-color: var(--glow);
+  animation: cmd-spin 0.9s linear infinite;
+}
+@keyframes cmd-spin { to { transform: rotate(360deg); } }
+#echo-root-wrapper .cmd-agent:focus-visible { outline: none; box-shadow: var(--e-focus); }
+
 #echo-root-wrapper .cmd-icon-btn {
   flex: none;
   width: 30px;
@@ -310,6 +338,39 @@
   opacity: 0.35;
   cursor: default;
 }
+/* Tasks the user showed ECHO ("Watch me"), to do again. */
+#echo-root-wrapper .cmd-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 2px 0;
+}
+#echo-root-wrapper .cmd-tasks-label {
+  flex: 0 0 100%;
+  font: var(--e-t-caption);
+  color: var(--e-text-3);
+  letter-spacing: 0.02em;
+}
+#echo-root-wrapper .cmd-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 11px 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--e-bubble-rim);
+  background: var(--e-bubble-fill);
+  color: var(--e-text);
+  font: 600 12px/1 var(--e-font);
+  cursor: pointer;
+}
+#echo-root-wrapper .cmd-task span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#echo-root-wrapper .cmd-task svg { flex: none; width: 12px; height: 12px; color: var(--glow); fill: currentColor; }
+#echo-root-wrapper .cmd-task:hover { background: var(--e-bubble-fill-hover); }
+#echo-root-wrapper .cmd-task:focus-visible { outline: none; box-shadow: var(--e-focus); }
+
 #echo-root-wrapper .cmd-foot {
   display: flex;
   align-items: center;

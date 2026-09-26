@@ -192,7 +192,8 @@ test('sessions: errors are reported, and events for another run are ignored', as
     message: { content: [{ type: 'text', text: 'from an older run' }] } } });
   mgr.handleEvent({ event: 'chat', payload: { sessionKey: 'agent:echo-analyst:lease-L1', runId: 'run-1', seq: 2, state: 'error', errorMessage: 'rate limited' } });
   await done;
-  assert.deepEqual(plain(said.map(s => s.text)), ["I couldn't finish that: rate limited."]);
+  assert.equal(said.length, 1, 'only this run\'s outcome is reported');
+  assert.match(said[0].text, /^I couldn't finish that: the AI's free usage limit is reached for now/);
   assert.equal(sessions.toolLabel('mcp__openclaw__style_extract'), 'extract');
   assert.equal(sessions.messageText({ content: [{ type: 'text', text: 'a' }, { type: 'image' }, { type: 'text', text: 'b' }] }), 'a\nb');
 });
@@ -339,6 +340,13 @@ test('sessions: "no callable tools" (the same avatar in two browsers) is explain
   assert.match(said[0].text, /another browser/);
   assert.match(said[0].text, /Echo · tagline of echo-analyst/);
   assert.equal(sessions.failureText('echo-analyst', 'model timed out.'), "I couldn't finish that: model timed out.");
+  // The AI service's raw errors become plain words, without codes, links or payloads.
+  const quota = sessions.failureText('echo', '⚠️ Google Generative AI API error (429): You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits.');
+  assert.match(quota, /free usage limit is reached/);
+  assert.doesNotMatch(quota, /429|https?:|billing/);
+  assert.match(sessions.failureText('echo', 'Gemini 429 RESOURCE_EXHAUSTED. Please retry in 37.2s.'), /about 38 seconds/);
+  assert.match(sessions.failureText('echo', 'Anthropic API error (401): invalid x-api-key'), /rejected its key/);
+  assert.match(sessions.failureText('echo', '503 UNAVAILABLE: The model is overloaded.'), /busy or unreachable/);
 });
 
 // --- which tools this browser offers ------------------------------------------------

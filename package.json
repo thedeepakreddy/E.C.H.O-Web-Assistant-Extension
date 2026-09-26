@@ -12,9 +12,13 @@
     "openclaw:e2e": "npm run build && node tools/openclaw/chrome-e2e.cjs",
     "openclaw:agent-reconnect": "node tools/openclaw/agent-reconnect.cjs",
     "e2e:agents": "npm run build && node tools/e2e/multi-agent.cjs",
+    "e2e:watch-me": "npm run build && node tools/e2e/watch-me.cjs",
     "bench": "npm run build && node tools/echobench/run.cjs",
     "openclaw:agents-e2e": "npm run build && node tools/openclaw/agents-e2e.cjs",
-    "openclaw:harness-e2e": "npm run build && node tools/openclaw/harness-e2e.cjs"
+    "openclaw:harness-e2e": "npm run build && node tools/openclaw/harness-e2e.cjs",
+    "openclaw:setup-e2e": "npm run build && node tools/openclaw/setup-e2e.cjs",
+    "openclaw:turn-on-e2e": "npm run build && node tools/openclaw/turn-on-e2e.cjs",
+    "openclaw:watch-me-e2e": "npm run build && node tools/e2e/watch-me.cjs --agent"
   },
   "keywords": [],
   "author": "",

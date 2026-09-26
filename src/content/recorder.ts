@@ -24,7 +24,8 @@ let recording = false;
 let steps: RecordedStep[] = [];
 let lastTypedTarget: HTMLElement | null = null;
 let scrollTimer: number | null = null;
-let badge: HTMLElement | null = null;
+/** Steps in the whole recording so far (it can span several pages), as the background counts them. */
+let totalSteps = 0;
 const SENSITIVE = /pass(word|wd)|\b(cvv|cvc|otp|pin|ssn|token|secret|security.?code|verification.?code)\b|credit.?card|card.?number|\bcc-(number|csc|exp)/i;
 
 function isSensitive(el: HTMLElement): boolean {
@@ -35,9 +36,15 @@ function isSensitive(el: HTMLElement): boolean {
 function capture(step: RecordedStep) {
   const saved = { ...step, id: crypto.randomUUID(), at: Date.now() };
   steps.push(saved);
-  chrome.runtime.sendMessage({ type: 'ECHO_RECORD_STEP', step: saved }).catch(() => {});
-  updateBadge();
+  totalSteps++;
+  chrome.runtime.sendMessage({ type: 'ECHO_RECORD_STEP', step: saved })
+    .then((r: any) => { if (typeof r?.count === 'number') totalSteps = Math.max(totalSteps, r.count); updateBar(); })
+    .catch(() => {});
+  updateBar();
 }
+
+/** ECHO's own controls: the command bar and the recording bar are never part of a recording. */
+const isEchoUi = (el: Element | null) => !!el?.closest?.('#echo-extension-root, #echo-rec-bar');
 
 // --- selector generation ---------------------------------------------------
 
@@ -236,7 +243,7 @@ function onClick(e: MouseEvent) {
   if (!recording) return;
   const el = e.target as HTMLElement;
   if (!el || !el.tagName) return;
-  if (el.closest('#echo-extension-root')) return; // never record ECHO's own UI
+  if (isEchoUi(el)) return; // never record ECHO's own UI
 
   // Attribute the click to the nearest real control, not a nested <span>.
   // Native dropdowns are recorded from their change event (onChange); the
@@ -259,7 +266,7 @@ function onClick(e: MouseEvent) {
 function onInput(e: Event) {
   if (!recording) return;
   const el = e.target as HTMLElement;
-  if (!el || el.closest('#echo-extension-root')) return;
+  if (!el || isEchoUi(el)) return;
   if (!/^(INPUT|TEXTAREA)$/.test(el.tagName) && !el.isContentEditable) return;
   const type = (el.getAttribute('type') || '').toLowerCase();
   if (type === 'password' || isSensitive(el)) return; // never record secrets
@@ -279,7 +286,7 @@ function flushTyping() {
 function onChange(e: Event) {
   if (!recording) return;
   const el = e.target as HTMLElement;
-  if (!el || el.tagName !== 'SELECT' || el.closest('#echo-extension-root')) return;
+  if (!el || el.tagName !== 'SELECT' || isEchoUi(el)) return;
   if (isSensitive(el)) return; // e.g. card expiry month
   const select = el as HTMLSelectElement;
   const options = Array.from(select.selectedOptions || [])
@@ -290,7 +297,7 @@ function onChange(e: Event) {
 }
 
 function onKeyDown(e: KeyboardEvent) {
-  if (!recording) return;
+  if (!recording || isEchoUi(e.target as Element)) return;
   if (e.key === 'Enter') {
     flushTyping();
     capture({ type: 'key', value: 'Enter' });
@@ -308,33 +315,135 @@ function onScroll() {
   }, 500);
 }
 
-function updateBadge() {
-  if (!badge) return;
-  badge.textContent = `● REC — ${steps.length} step${steps.length === 1 ? '' : 's'}`;
+// --- the recording bar ------------------------------------------------------
+// Top of the page while ECHO watches: how many steps so far, Done and Cancel.
+// Done asks for a name and saves the task. It lives in a closed shadow root,
+// so the page's CSS can't restyle it and the page's scripts can't reach in;
+// its buttons only act on real clicks and key presses.
+
+type BarState = 'recording' | 'naming' | 'saving' | 'saved' | 'error';
+let bar: { host: HTMLElement; root: ShadowRoot } | null = null;
+let barState: BarState = 'recording';
+let barMessage = '';
+let barTimer: number | null = null;
+
+const BAR_CSS = `
+:host { all: initial; position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 2147483647; }
+.bar { display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100vw - 32px)); padding: 7px 8px 7px 14px;
+  border-radius: 999px; background: rgba(20, 20, 28, 0.94); color: #fff; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  font: 500 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #ff453a; animation: pulse 1.4s ease-in-out infinite; }
+.ok { flex: none; color: #30d158; font-weight: 700; }
+.text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text small { color: rgba(255, 255, 255, 0.6); font-size: 12px; margin-left: 6px; }
+input { width: 190px; min-width: 0; padding: 6px 10px; border: none; border-radius: 8px; background: rgba(255, 255, 255, 0.12); color: #fff;
+  font: inherit; outline: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); }
+input:focus { box-shadow: inset 0 0 0 2px #0a84ff; }
+button { flex: none; padding: 6px 14px; border: none; border-radius: 999px; font: 600 12.5px/1.2 inherit; font-family: inherit; cursor: pointer;
+  background: rgba(255, 255, 255, 0.14); color: #fff; }
+button.primary { background: #fff; color: #111; }
+button:hover { filter: brightness(1.1); }
+button:focus-visible { outline: 2px solid #0a84ff; outline-offset: 2px; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none; } }`;
+
+function suggestedName(): string {
+  const title = (document.title || location.hostname).split(/\s[|\-–·:]\s/)[0];
+  return title.replace(/[^\p{L}\p{N} '&-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || 'My task';
 }
 
-function showBadge() {
-  if (badge) return;
-  badge = document.createElement('div');
-  badge.id = 'echo-rec-badge';
-  Object.assign(badge.style, {
-    position: 'fixed', top: '14px', left: '50%', transform: 'translateX(-50%)',
-    background: 'rgba(239,68,68,0.95)', color: '#fff', padding: '6px 14px',
-    borderRadius: '20px', font: '600 12px -apple-system,sans-serif',
-    zIndex: '2147483647', pointerEvents: 'none', letterSpacing: '0.4px',
-    boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
-  } as CSSStyleDeclaration);
-  updateBadge();
-  document.body.appendChild(badge);
+function el(tag: string, props: Record<string, string | number> = {}, ...children: (Node | string)[]): HTMLElement {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children);
+  return node;
 }
 
-function hideBadge() {
-  badge?.remove();
-  badge = null;
+/** A button that ignores synthetic clicks from page scripts. */
+function trustedButton(label: string, onPress: () => void, primary = false) {
+  const b = el('button', { type: 'button', className: primary ? 'primary' : '' }, label);
+  b.addEventListener('click', e => { if (e.isTrusted) onPress(); });
+  return b;
 }
 
-export function startRecording(): { success: boolean; result: string } {
+function setBar(state: BarState, message = '') {
+  barState = state;
+  barMessage = message;
+  updateBar();
+}
+
+function updateBar() {
+  if (!bar) return;
+  const steps = `${totalSteps} step${totalSteps === 1 ? '' : 's'}`;
+  const box = el('div', { className: 'bar' });
+  box.setAttribute('role', 'status');
+  if (barState === 'recording') {
+    box.append(el('span', { className: 'dot' }), el('span', { className: 'text' }, 'ECHO is watching', el('small', {}, steps)),
+      trustedButton('Done', () => setBar('naming'), true), trustedButton('Cancel', cancelFromBar));
+  } else if (barState === 'naming') {
+    const input = el('input', { value: suggestedName(), maxLength: 40, placeholder: 'Name this task' }) as HTMLInputElement;
+    input.setAttribute('aria-label', 'Name this task');
+    input.addEventListener('keydown', e => {
+      if (!e.isTrusted) return;
+      if (e.key === 'Enter') saveFromBar(input.value);
+      if (e.key === 'Escape') setBar('recording');
+    });
+    box.append(el('span', { className: 'text' }, 'Name it', el('small', {}, steps)), input,
+      trustedButton('Save', () => saveFromBar(input.value), true), trustedButton('Back', () => setBar('recording')));
+    bar.root.replaceChildren(el('style', {}, BAR_CSS), box);
+    input.focus();
+    input.select();
+    return;
+  } else if (barState === 'saving') {
+    box.append(el('span', { className: 'text' }, 'Saving…'));
+  } else if (barState === 'saved') {
+    box.append(el('span', { className: 'ok' }, '✓'), el('span', { className: 'text' }, barMessage), trustedButton('OK', hideBar, true));
+  } else {
+    box.append(el('span', { className: 'text' }, barMessage), trustedButton('OK', hideBar, true));
+  }
+  bar.root.replaceChildren(el('style', {}, BAR_CSS), box);
+}
+
+function saveFromBar(raw: string) {
+  const name = raw.trim();
+  if (!name) return;
+  setBar('saving');
+  chrome.runtime.sendMessage({ type: 'ECHO_WORKFLOW', action: 'stop', name })
+    .then((r: any) => {
+      if (!r?.success) { setBar('error', r?.error || 'Could not save the task.'); return; }
+      setBar('saved', `Saved "${r.name}". Do it again any time from the Echo panel.`);
+      if (barTimer) window.clearTimeout(barTimer);
+      barTimer = window.setTimeout(hideBar, 8000);
+    })
+    .catch(() => setBar('error', 'ECHO is not responding. Reload the page and try again.'));
+}
+
+function cancelFromBar() {
+  chrome.runtime.sendMessage({ type: 'ECHO_WORKFLOW', action: 'cancel' }).catch(() => {});
+  stopRecording();
+  hideBar();
+}
+
+function showBar() {
+  if (barTimer) { window.clearTimeout(barTimer); barTimer = null; }
+  if (!bar) {
+    const host = document.createElement('div');
+    host.id = 'echo-rec-bar';
+    const root = host.attachShadow({ mode: 'closed' });
+    bar = { host, root };
+    document.documentElement.appendChild(host);
+  }
+  setBar('recording');
+}
+
+function hideBar() {
+  if (barTimer) { window.clearTimeout(barTimer); barTimer = null; }
+  bar?.host.remove();
+  bar = null;
+}
+
+export function startRecording(stepsSoFar = 0): { success: boolean; result: string } {
   if (recording) return { success: true, result: 'already recording' };
+  totalSteps = stepsSoFar;
   steps = [];
   lastTypedTarget = null;
   recording = true;
@@ -343,7 +452,7 @@ export function startRecording(): { success: boolean; result: string } {
   document.addEventListener('change', onChange, true);
   document.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('scroll', onScroll, { passive: true });
-  showBadge();
+  showBar();
   return { success: true, result: 'recording' };
 }
 
@@ -356,7 +465,8 @@ export function stopRecording(): { success: boolean; result: { steps: RecordedSt
   document.removeEventListener('keydown', onKeyDown, true);
   window.removeEventListener('scroll', onScroll);
   if (scrollTimer) { window.clearTimeout(scrollTimer); scrollTimer = null; }
-  hideBadge();
+  // Saving from the bar keeps it up to say so; any other stop takes it away.
+  if (barState === 'recording' || barState === 'naming') hideBar();
   const captured = steps;
   steps = [];
   return { success: true, result: { steps: captured } };

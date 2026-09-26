@@ -9,7 +9,7 @@ import { executeTool } from './tools';
 import { matchSite, siteSearchUrl, siteActionSelectors, SITE_PROFILES } from './site-knowledge';
 import {
   startRecording, stopRecording, cancelRecording, isRecording,
-  listWorkflows, deleteWorkflow, playWorkflow, findWorkflowKey, previewWorkflow, isSafeWorkflowUrl,
+  listWorkflows, deleteWorkflow, playWorkflow, strictWorkflowKey, previewWorkflow, isSafeWorkflowUrl,
 } from './workflow-engine';
 import {
   createWatcher, listWatchers, deleteWatcher, clearWatchers, describeWatcher, WatchCondition,
@@ -184,10 +184,10 @@ rule(/\b(list|show|what)\b.{0,12}\b(my )?(saved )?tasks?\b/i,
 rule(/\b(record|capture|watch me|learn)\b.{0,20}\b(a )?(workflow|macro|steps|what i do|sequence)\b/i,
   async (_m, ctx) => {
     if (ctx.tabId == null) return "I need an active tab to record on.";
-    if (await isRecording()) return "I'm already recording. Say \"stop recording and call it <name>\" when you're done.";
+    if (await isRecording()) return "I'm already watching. Press Done at the top of the page when you're finished.";
     if (!isSafeWorkflowUrl(ctx.url)) return "I can't record a workflow on a sign-in or token-bearing URL.";
     await startRecording(ctx.tabId, ctx.url);
-    return "Recording. Do your steps normally — I'm watching clicks and typing (never passwords). Say \"stop recording and call it <name>\" when you're finished.";
+    return "Watching. Do the task, then press Done at the top of the page.";
   });
 
 rule(/\b(stop|finish|end|done)\b.{0,25}\brecording\b(?:.{0,25}?\b(?:call(?:ed)? it|name it|as)\s+["']?([\w\s-]{1,40}?)["']?)?\s*$/i,
@@ -222,11 +222,13 @@ rule(/\b(run|play|replay|execute|do)\b\s+(?:my\s+|the\s+)?(?:workflow\s+)?["']?(
     const name = m[2].trim();
     const all = await listWorkflows();
     if (!Object.keys(all).length) return null; // no workflows — let a real tier handle it
-    // Only claim this if the name actually resolves to something we have.
-    if (!findWorkflowKey(all, name)) return null;
+    // Only claim this if the request is just the name: "do callback for Bob"
+    // needs a brain, because a replay would ignore "for Bob".
+    const key = strictWorkflowKey(all, name);
+    if (!key) return null;
     if (ctx.tabId == null) return "I need an active tab to run a workflow.";
-    setState(ctx.tabId, `Running workflow "${name}"…`);
-    const res = await playWorkflow(name, ctx.tabId);
+    setState(ctx.tabId, `Running workflow "${key}"…`);
+    const res = await playWorkflow(key, ctx.tabId);
     return res.message;
   });
 

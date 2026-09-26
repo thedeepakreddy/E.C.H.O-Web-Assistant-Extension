@@ -94,7 +94,7 @@ const initLocalFeatures = () => {
       .catch(() => { /* background asleep — nothing to restore */ });
   }).catch(() => { initHighlighter(); });
   chrome.runtime.sendMessage({ type: 'ECHO_RECORD_STATUS' })
-    .then((r: any) => { if (r?.active) startRecording(); })
+    .then((r: any) => { if (r?.active) startRecording(Number(r.count) || 0); })
     .catch(() => {});
 };
 

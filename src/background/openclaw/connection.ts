@@ -61,6 +61,17 @@ interface Plan { auth: GatewayBrowserDeviceAuthPlan; params: ConnectParams }
 
 // Retry cadence while a pairing request waits for the user to approve it.
 const PAIRING_RETRY_MS = 4000;
+// Refused until setup finishes (the gateway does not have ECHO's token yet, or
+// does not know this ECHO): keep trying, slowly enough to stay under the
+// gateway's limit on failed sign-ins from browsers (ten a minute, then a
+// five-minute lockout), so ECHO connects soon after the setup command runs.
+const SETUP_RETRY_MS = 20_000;
+const LOCKED_OUT_RETRY_MS = 60_000;
+const WAITING_FOR_SETUP = new Set<string>([
+  ConnectErrorDetailCodes.AUTH_REQUIRED, ConnectErrorDetailCodes.AUTH_UNAUTHORIZED, ConnectErrorDetailCodes.AUTH_TOKEN_MISSING,
+  ConnectErrorDetailCodes.AUTH_TOKEN_MISMATCH, ConnectErrorDetailCodes.AUTH_TOKEN_NOT_CONFIGURED,
+  ConnectErrorDetailCodes.CONTROL_UI_ORIGIN_NOT_ALLOWED,
+]);
 const CONNECT_FAILED_CLOSE = 4001;
 const TICK_TIMEOUT_CLOSE = 4000;
 
@@ -167,6 +178,12 @@ export function createGatewayConnection(opts: GatewayConnectionOptions): Gateway
         const pairing = readPairingConnectErrorDetails(error.details);
         emit({ kind: 'pairing-required', requestId: pairing?.requestId, message: error.message });
         return { closeCode: CONNECT_FAILED_CLOSE, closeReason: 'pairing required', reconnectDelayMs: PAIRING_RETRY_MS };
+      }
+      if (code === ConnectErrorDetailCodes.AUTH_RATE_LIMITED) {
+        return { closeCode: CONNECT_FAILED_CLOSE, closeReason: 'too many attempts', reconnectDelayMs: LOCKED_OUT_RETRY_MS };
+      }
+      if (code && WAITING_FOR_SETUP.has(code)) {
+        return { closeCode: CONNECT_FAILED_CLOSE, closeReason: 'waiting for setup', reconnectDelayMs: SETUP_RETRY_MS };
       }
       if (isRetryableGatewayStartupUnavailableError(error)) {
         return { closeCode: CONNECT_FAILED_CLOSE, closeReason: 'gateway starting',
