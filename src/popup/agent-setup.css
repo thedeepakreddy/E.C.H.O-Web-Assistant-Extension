@@ -66,6 +66,8 @@
   animation: agent-pulse 1.4s ease-in-out infinite;
 }
 .agent-progress.not-running i, .agent-progress.needs-setup i { background: #ffb340; }
+.agent-progress.ready i { background: #34c759; }
+.agent-note code { font: 11.5px/1.4 var(--e-mono); color: var(--e-text); }
 @keyframes agent-pulse { 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { .agent-progress i { animation: none !important; } }
 

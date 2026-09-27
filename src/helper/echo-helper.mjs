@@ -6,12 +6,13 @@
 // no OpenClaw browser) and ECHO's gateway on this computer only.
 
 import { execFile } from 'node:child_process';
-import { promises as fs, existsSync, realpathSync } from 'node:fs';
+import { promises as fs, existsSync, realpathSync, unlinkSync } from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const HELPER_VERSION = 2;
+export const HELPER_VERSION = 3;
 const PROFILE = 'echo';
 const PORT = 18790;
 const HOME = os.homedir();
@@ -23,6 +24,11 @@ const UNUSED_FILES = ['BOOTSTRAP.md', 'USER.md', 'HEARTBEAT.md'];
 const HELPER_DIR = process.env.ECHO_HELPER_HOME || path.dirname(fileURLToPath(import.meta.url));
 const APPS_DIR = path.join(HELPER_DIR, 'apps');
 const GUARD_DIR = path.join(HELPER_DIR, 'echo-guard');
+// Where echo-mcp (started by Claude) reaches ECHO. Unix socket paths are short.
+export const BRIDGE_SOCKET = process.env.ECHO_BRIDGE_SOCKET || (() => {
+  const p = path.join(HELPER_DIR, 'echo.sock');
+  return p.length < 100 ? p : path.join('/tmp', `echo-${process.getuid?.() ?? 'user'}.sock`);
+})();
 const AI = {
   google: { model: 'google/gemini-3.8-flash', fallbacks: ['google/gemini-3.1-flash-lite', 'google/gemini-2.5-flash'] },
   anthropic: { model: 'anthropic/claude-sonnet-5', fallbacks: [] },
@@ -355,6 +361,124 @@ export async function turnOn(req, origin, progress) {
   throw new Error('ECHO did not connect. Keep its side panel open and press Turn on again.');
 }
 
+// --- ECHO for Claude Desktop and Claude Code -----------------------------------------
+
+let bridge = null;
+const BRIDGE_TOOL = /^(__tools|[a-z][a-z_]{0,39})$/;
+
+/**
+ * While ECHO keeps this helper open, Claude's echo-mcp can reach it through a
+ * socket only this user can open. Each call goes to ECHO; its answer comes back.
+ */
+export async function startBridge(send) {
+  if (bridge) return { ok: true, socket: BRIDGE_SOCKET };
+  if (existsSync(BRIDGE_SOCKET)) {
+    const alive = await new Promise(resolve => {
+      const c = net.createConnection(BRIDGE_SOCKET);
+      c.on('connect', () => { c.destroy(); resolve(true); });
+      c.on('error', () => resolve(false));
+    });
+    check(!alive, 'Another browser already shares ECHO with Claude. Turn it off there first.');
+    await fs.rm(BRIDGE_SOCKET, { force: true });
+  }
+  const pending = new Map();
+  const server = net.createServer(sock => {
+    let buffer = '';
+    sock.setEncoding('utf8');
+    sock.on('data', chunk => {
+      buffer += chunk;
+      if (buffer.length > 1024 * 1024) { sock.destroy(); return; }
+      let nl;
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, nl);
+        buffer = buffer.slice(nl + 1);
+        let m;
+        try { m = JSON.parse(line); } catch { continue; }
+        const tool = String(m?.tool || '');
+        if (!BRIDGE_TOOL.test(tool)) { sock.write(`${JSON.stringify({ callId: m?.callId, error: 'Unknown tool.' })}\n`); continue; }
+        const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+        pending.set(id, { sock, callId: m.callId });
+        send({ bridge: 'call', callId: id, tool, args: m.args && typeof m.args === 'object' ? m.args : {} });
+      }
+    });
+    sock.on('close', () => { for (const [id, p] of pending) if (p.sock === sock) pending.delete(id); });
+    sock.on('error', () => {});
+  });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(BRIDGE_SOCKET, resolve); });
+  await fs.chmod(BRIDGE_SOCKET, 0o600);
+  bridge = { server, pending };
+  process.on('exit', () => { try { unlinkSync(BRIDGE_SOCKET); } catch { /* gone */ } });
+  return { ok: true, socket: BRIDGE_SOCKET };
+}
+
+/** ECHO's answer to one of Claude's calls. */
+export function bridgeReply(m) {
+  const p = bridge?.pending.get(m.bridgeReply);
+  if (!p) return;
+  bridge.pending.delete(m.bridgeReply);
+  p.sock.write(`${JSON.stringify({ callId: p.callId, ...(m.error ? { error: String(m.error) } : { result: m.result }) })}\n`);
+}
+
+const CLAUDE_DESKTOP_CONFIG = process.env.ECHO_CLAUDE_DESKTOP_CONFIG || (process.platform === 'darwin'
+  ? path.join(HOME, 'Library/Application Support/Claude/claude_desktop_config.json')
+  : path.join(HOME, '.config/Claude/claude_desktop_config.json'));
+const ECHO_MCP = path.join(HELPER_DIR, 'echo-mcp');
+// Claude Code's user settings (where "claude mcp add --scope user" writes).
+const CLAUDE_CODE_CONFIG = process.env.ECHO_CLAUDE_CODE_CONFIG || path.join(HOME, '.claude.json');
+
+function findClaudeCli() {
+  const candidates = [process.env.CLAUDE_CLI, ...String(process.env.PATH || '').split(':').map(dir => path.join(dir, 'claude')),
+    path.join(HOME, '.local/bin/claude'), path.join(HOME, '.claude/local/claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'].filter(Boolean);
+  return candidates.find(p => existsSync(p)) || null;
+}
+const runPlain = (cmd, args) => new Promise(resolve => execFile(cmd, args, { timeout: 60_000 },
+  (error, stdout, stderr) => resolve({ ok: !error, out: String(stdout || '') + String(stderr || '') })));
+
+/** Add ECHO's MCP server to Claude Code (user settings) or Claude Desktop (its config file, backed up first). */
+export async function addToClaude(req) {
+  check(existsSync(ECHO_MCP), 'Echo Helper is out of date. Install it again from ECHO\'s settings.');
+  if (req?.client === 'desktop') {
+    const file = CLAUDE_DESKTOP_CONFIG;
+    check(existsSync(path.dirname(file)), 'Claude Desktop is not installed on this computer.');
+    let config = {};
+    if (existsSync(file)) {
+      const raw = await fs.readFile(file, 'utf8');
+      try { config = raw.trim() ? JSON.parse(raw) : {}; } catch { throw new Error('Claude Desktop\'s settings file could not be read, so it was left as it is.'); }
+      check(config && typeof config === 'object' && !Array.isArray(config), 'Claude Desktop\'s settings file could not be read, so it was left as it is.');
+      await fs.writeFile(`${file}.echo-backup`, raw, { mode: 0o600 });
+    }
+    config.mcpServers = { ...(config.mcpServers && typeof config.mcpServers === 'object' ? config.mcpServers : {}), echo: { command: ECHO_MCP } };
+    await fs.writeFile(file, `${JSON.stringify(config, null, 2)}\n`);
+    return { ok: true, restart: true, path: file };
+  }
+  if (req?.client === 'code') {
+    const cli = findClaudeCli();
+    if (cli) {
+      await runPlain(cli, ['mcp', 'remove', 'echo', '--scope', 'user']);
+      const r = await runPlain(cli, ['mcp', 'add', '--scope', 'user', 'echo', '--', ECHO_MCP]);
+      check(r.ok, `Claude Code did not add ECHO: ${r.out.trim().split('\n').pop() || 'no details'}`);
+      return { ok: true };
+    }
+    // No "claude" command (the Claude app's Code tab has none): add ECHO to
+    // Claude Code's user settings file directly, the way "claude mcp add
+    // --scope user" does. Backed up first, and replaced in one step.
+    const file = CLAUDE_CODE_CONFIG;
+    check(existsSync(file), 'Claude Code is not set up on this computer yet. Open Claude Code once, then try again.');
+    const raw = await fs.readFile(file, 'utf8');
+    let config;
+    try { config = JSON.parse(raw); } catch { throw new Error('Claude Code\'s settings file could not be read, so it was left as it is.'); }
+    check(config && typeof config === 'object' && !Array.isArray(config), 'Claude Code\'s settings file could not be read, so it was left as it is.');
+    await fs.writeFile(`${file}.echo-backup`, raw, { mode: 0o600 });
+    config.mcpServers = { ...(config.mcpServers && typeof config.mcpServers === 'object' ? config.mcpServers : {}),
+      echo: { type: 'stdio', command: ECHO_MCP, args: [], env: {} } };
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(config, null, 2), { mode: 0o600 });
+    await fs.rename(tmp, file);
+    return { ok: true, path: file };
+  }
+  throw new Error('Unknown Claude app.');
+}
+
 /** Agent mode off: stop the gateway service and keep it from starting at login. */
 export async function turnOff() {
   const oc = findOpenClaw();
@@ -380,6 +504,8 @@ async function handle(message, origin) {
     else if (message?.cmd === 'turn-on') result = await turnOn(message, origin, (step, extra = {}) => send({ id, progress: step, ...extra }));
     else if (message?.cmd === 'turn-off') result = await turnOff();
     else if (message?.cmd === 'apps') result = await apps();
+    else if (message?.cmd === 'bridge') { check(ORIGIN.test(origin || ''), 'Unknown caller.'); result = await startBridge(send); }
+    else if (message?.cmd === 'add-to-claude') { check(ORIGIN.test(origin || ''), 'Unknown caller.'); result = await addToClaude(message); }
     else if (message?.cmd === 'connect-app') result = await connectApp(message, origin);
     else if (message?.cmd === 'disconnect-app') { check(ORIGIN.test(origin || ''), 'Unknown caller.'); result = await disconnectApp(message); }
     else if (message?.cmd === 'app-agents') { check(ORIGIN.test(origin || ''), 'Unknown caller.'); result = await setAppAgents(message); }
@@ -409,7 +535,9 @@ export function main() {
       let message = null;
       try { message = JSON.parse(buffer.subarray(4, 4 + length).toString('utf8')); } catch { /* answered below */ }
       buffer = buffer.subarray(4 + length);
-      track(handle(message, origin));
+      // ECHO answering one of Claude's calls (the bridge), or a request.
+      if (message && typeof message.bridgeReply === 'string') bridgeReply(message);
+      else track(handle(message, origin));
     }
   });
   process.stdin.on('end', () => { ended = true; exitWhenIdle(); });

@@ -751,3 +751,15 @@ svg { display: block; }
 .echo-action-status { font: 600 10px/1.2 var(--e-font); text-transform: uppercase; letter-spacing: 0.05em; color: var(--e-text-3); }
 .echo-action-status.approved, .echo-action-status.done { color: #86e8b0; }
 .echo-action-status.denied, .echo-action-status.failed { color: #ff9f98; }
+
+/* Claude (Desktop or Code), using a tab through ECHO. */
+.echo-avatar-letter { display: inline-grid; place-items: center; flex: none; border-radius: 50%;
+  background: linear-gradient(135deg, #d97757, #b35a3d); color: #fff; font-weight: 700; }
+.echo-claude-card { grid-column: 1 / -1; flex-direction: row; justify-content: flex-start; gap: 12px; text-align: left; }
+.echo-claude-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.echo-claude-card-text .echo-avatar-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.echo-claude-bar { display: flex; align-items: center; gap: 8px; margin: 0 16px 8px; padding: 7px 10px; border-radius: 12px;
+  background: rgba(217, 119, 87, 0.14); color: var(--e-text); font: var(--e-t-small); }
+.echo-claude-bar-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.echo-claude-bar button { flex: none; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--e-bubble-rim);
+  background: var(--e-bubble-fill); color: var(--e-text); font: 600 11.5px/1.2 var(--e-font); cursor: pointer; }

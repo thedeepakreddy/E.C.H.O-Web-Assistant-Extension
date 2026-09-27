@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Message the team</title></head>
+<body><h1>Message the team</h1>
+<p>Team inbox: team@example.com</p>
+<label>Your message <textarea id="msg" name="msg"></textarea></label>
+<button id="send" onclick="window.__sent = document.getElementById('msg').value; document.getElementById('status').textContent = 'Message sent';">Send message</button>
+<p id="status"></p><script>window.__sent = null;</script></body></html>

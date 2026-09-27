@@ -8,6 +8,7 @@ import { AVATAR_AGENTS, TOOL_NAMES, allCommands, toolNameFor } from './registry'
 import { agentsMd, soulMd, identityMd } from './setup-script';
 import { prepareOpenClawPairing, reconnectOpenClaw, saveOpenClawSettings } from './index';
 import { getAuthConfig } from '../auth';
+import { claudeToolList } from '../claude-bridge';
 
 export interface HelperInfo {
   helper: number;
@@ -60,6 +61,13 @@ export async function connectApp(req: Record<string, unknown>): Promise<{ accoun
   return ask({ ...req, cmd: 'connect-app' });
 }
 export async function disconnectApp(app: AppId): Promise<void> { await ask({ cmd: 'disconnect-app', app }); }
+
+/** Add ECHO's MCP server to Claude Code (its user settings) or Claude Desktop (its config file). */
+export async function addEchoToClaude(client: 'code' | 'desktop'): Promise<{ restart?: boolean; path?: string }> {
+  const r = await ask({ cmd: 'add-to-claude', client });
+  if (!r) throw new Error('Echo Helper is not installed. Turn agent mode on once to install it.');
+  return r;
+}
 export async function setAppAgents(app: AppId, agents: string[]): Promise<string[]> {
   return (await ask({ cmd: 'app-agents', app, agents }))?.agents || [];
 }
@@ -98,7 +106,7 @@ export async function turnOnAgentMode(opts: { ai?: AiChoice; useEchoKey?: boolea
   progress: (step: string) => void): Promise<TurnOnResult> {
   const info = await helperInfo();
   if (!info?.openclaw || info.outdated) {
-    return { needsHelper: true, command: await helperInstallCommand(chrome.runtime.id, chrome.runtime.getManifest().version) };
+    return { needsHelper: true, command: await helperInstallCommand(chrome.runtime.id, chrome.runtime.getManifest().version, claudeToolList()) };
   }
   let ai = opts.ai;
   if (!info.model && !ai && opts.useEchoKey) ai = (await echoKey()) ?? undefined;
