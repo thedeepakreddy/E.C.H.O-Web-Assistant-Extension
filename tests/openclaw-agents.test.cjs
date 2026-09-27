@@ -418,6 +418,7 @@ function openClawHarness({ publishDelayMs = 0 } = {}) {
       busy: () => false, resume: async () => {}, handleEvent: () => {},
     }) },
     './registry': r,
+    'app-approvals': loadTs('src/background/openclaw/app-approvals.ts', { AbortController }),
     'setup-script': { TESTED_OPENCLAW: 'test' },
     leases: leasesModule,
     bus: { sayAs: () => {}, setStateAs: () => {}, draftAs: () => {} },

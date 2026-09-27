@@ -6,6 +6,7 @@ import { CHARACTERS, REACTOR, REACTOR_THEME, characterById, characterAsset, reso
 import { DEFAULT_CLAUDE_MODEL, DEFAULT_GEMINI_MODEL } from '../background/auth';
 import { sanitizeProfile, TONES, Tone } from '../background/personalization';
 import { AgentSetup, useAgentMode, PHASE_TEXT } from './agent-setup';
+import { AppsSetup } from './apps-setup';
 
 interface Skill { id: string; shortcut: string; name: string; prompt: string }
 
@@ -537,7 +538,7 @@ function Options() {
 
 function OpenClawGroup() {
   const mode = useAgentMode();
-  return (
+  return (<>
     <Group title="Agent mode" footer={'Each agent you assign to a tab works there on its own, with an AI on this computer. '
       + 'Echo still asks before paying or sending anything.'}>
       <Row label={PHASE_TEXT[mode.phase].title} hint={PHASE_TEXT[mode.phase].detail} />
@@ -546,7 +547,12 @@ function OpenClawGroup() {
           doneLabel="Open the chat panel to assign an agent" />
       </div>
     </Group>
-  );
+    <Group title="Apps for agents" footer="Agents ask you to Allow each email they send and each post they make, just like in the browser.">
+      <div className="row stacked agent-setup-row">
+        <AppsSetup mode={mode} />
+      </div>
+    </Group>
+  </>);
 }
 
 // ---- macOS System Settings building blocks ----

@@ -37,12 +37,11 @@ async function main() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-helper-home-'));
   fs.mkdirSync(path.join(home, 'Library/Application Support/Google/Chrome'), { recursive: true });
   const { cdp, extensionId, worker, userDir, cleanup } = await launchEcho({ urls: ['https://example.com/'] });
+  // Removes the test's device, puts back the gateway's Echo guard settings and
+  // makes sure the gateway runs again (other ECHOs on this computer use it).
+  const tidy = require('./agent-mode-live.cjs').keepGatewayTidy();
   process.on('exit', () => {
-    for (const d of (() => { try { return ocJson('devices', 'list').paired || []; } catch { return []; } })()) {
-      if (!known.has(d.deviceId)) tryOc('devices', 'remove', d.deviceId);
-    }
-    // Never leave the gateway off: other ECHOs on this computer use it.
-    if (!tryOc('health')) tryOc('daemon', 'install', '--force');
+    tidy();
     cleanup();
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -133,7 +132,8 @@ async function main() {
   const busy = await waitFor(async () => /Turning on/.test(await agentButton()), 10_000, 200);
   check('the Echo panel shows it is turning on', !!busy);
   const onAgain = await waitFor(async () => (await status()).ready && /Agents on/.test(await agentButton()), 180_000, 1000);
-  check('Turn on from the Echo panel brings agents back', !!onAgain, `${Math.round((Date.now() - again) / 1000)}s`);
+  check('Turn on from the Echo panel brings agents back', !!onAgain, onAgain ? `${Math.round((Date.now() - again) / 1000)}s`
+    : `${Math.round((Date.now() - again) / 1000)}s; ECHO: ${JSON.stringify(await status()).slice(0, 400)}`);
 
   cdp.close();
   const failed = results.filter(ok => !ok).length;

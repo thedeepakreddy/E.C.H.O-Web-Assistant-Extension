@@ -68,6 +68,7 @@ case "$args" in
   *"devices list --json"*) [ -f "${approved}" ] && echo '{"pending":[]}' || echo '{"pending":[{"deviceId":"${DEVICE}","requestId":"req-1"}]}';;
   *"devices approve req-1"*) touch "${approved}";;
   *"nodes pending --json"*) echo '{"pending":[]}';;
+  *"config get agents.entries"*) echo '{"echo":{"tools":{"allow":["echo_observe","echo_act"]}},"echo-style":{"tools":{"allow":["style_observe","echo-mail__*"]}},"main":{"tools":{}}}';;
   *"nodes describe"*) [ -f "${approved}" ] && echo '{"connected":true,"approvalState":"approved"}' || echo '{"connected":false}';;
 esac
 exit 0
@@ -175,4 +176,59 @@ test('helper: refuses callers that are not an extension, and unknown requests', 
   assert.match(byId[1].error, /Unknown caller/);
   assert.match(byId[2].error, /Unknown request/);
   assert.ok(!fs.existsSync(path.join(fake.dir, 'calls.log')), 'nothing was run');
+});
+
+test('helper: connecting email keeps the app password in a private file, never on a command line', async () => {
+  const fake = fakeOpenClaw();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-helper-apps-'));
+  // A stand-in email app whose sign-in check always passes.
+  fs.writeFileSync(path.join(home, 'echo-mail.mjs'), 'console.log(JSON.stringify({ ok: true }));');
+  fs.mkdirSync(path.join(home, 'echo-guard'));
+  fs.writeFileSync(path.join(home, 'echo-guard', 'index.mjs'), 'export default {};');
+  const env = { OPENCLAW: fake.bin, ECHO_HELPER_HOME: home };
+  const replies = await talk(env, [
+    { id: 1, cmd: 'connect-app', app: 'mail', provider: 'gmail', address: 'me@gmail.com', password: 'abcd efgh ijkl mnop', agents: ['echo', 'echo-style'] },
+    { id: 2, cmd: 'connect-app', app: 'mail', provider: 'gmail', address: 'not-an-address', password: 'abcdefghijkl' },
+  ]);
+  const byId = Object.fromEntries(replies.map(r => [r.id, r]));
+  assert.deepEqual(byId[1].result, { ok: true, account: 'me@gmail.com', agents: ['echo', 'echo-style'] }, JSON.stringify(byId[1]));
+  assert.match(byId[2].error, /email address does not look right/);
+  const cred = path.join(home, 'apps', 'mail.json');
+  assert.equal(fs.statSync(cred).mode & 0o777, 0o600, 'only the user can read it');
+  const saved = JSON.parse(fs.readFileSync(cred, 'utf8'));
+  assert.equal(saved.password, 'abcdefghijklmnop', 'spaces in the app password are dropped');
+  assert.equal(saved.imap.host, 'imap.gmail.com');
+  const calls = fake.calls();
+  assert.ok(!calls.some(c => c.includes('abcdefghijklmnop') || c.includes('abcd efgh')), 'the password never appears in a command');
+  const server = calls.find(c => c.includes('config set mcp.servers.echo-mail'));
+  assert.ok(server && server.includes('echo-mail.mjs') && server.includes('ECHO_MAIL_CONFIG'), server);
+  assert.ok(calls.some(c => c.includes('config set plugins.entries.echo-guard {"enabled":true}')), 'Echo guard is on');
+  assert.ok(calls.includes('--profile echo config set agents.entries.echo.tools.allow ["echo_observe","echo_act","echo-mail__*"] --strict-json'),
+    'each chosen agent keeps its browser tools and gets the app');
+  assert.ok(calls.includes('--profile echo config set agents.entries.echo-style.tools.allow ["style_observe","echo-mail__*"] --strict-json'));
+});
+
+test('helper: app requests from anything but an extension are refused', async () => {
+  const fake = fakeOpenClaw();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-helper-apps-'));
+  const replies = await new Promise(resolve => {
+    const out = [];
+    const p = spawn(process.execPath, [HELPER, 'https://evil.example/'], { env: { ...process.env, OPENCLAW: fake.bin, ECHO_HELPER_HOME: home } });
+    let buffer = Buffer.alloc(0);
+    p.stdout.on('data', chunk => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 4 && buffer.length >= 4 + buffer.readUInt32LE(0)) {
+        const n = buffer.readUInt32LE(0); out.push(JSON.parse(buffer.subarray(4, 4 + n).toString())); buffer = buffer.subarray(4 + n);
+      }
+    });
+    p.on('exit', () => resolve(out));
+    for (const m of [{ id: 1, cmd: 'connect-app', app: 'mail', provider: 'gmail', address: 'me@gmail.com', password: 'abcdefghijkl' },
+      { id: 2, cmd: 'disconnect-app', app: 'mail' }, { id: 3, cmd: 'app-agents', app: 'mail', agents: [] }]) {
+      const body = Buffer.from(JSON.stringify(m)); const head = Buffer.alloc(4); head.writeUInt32LE(body.length);
+      p.stdin.write(Buffer.concat([head, body]));
+    }
+    p.stdin.end();
+  });
+  for (const r of replies) assert.match(r.error, /Unknown caller/, JSON.stringify(r));
+  assert.ok(!fs.existsSync(path.join(home, 'apps', 'mail.json')));
 });

@@ -104,8 +104,8 @@
 }
 .agent-field { display: flex; flex-direction: column; gap: 4px; margin: 0; color: var(--e-text-2); font: var(--e-t-caption); }
 .agent-inline { display: flex; gap: 8px; align-items: center; }
+.agent-inline input { flex: 1; }
 .agent-field input {
-  flex: 1;
   min-width: 0;
   padding: 7px 10px;
   border: none;
@@ -170,3 +170,19 @@
 .agent-segment button.on { background: var(--e-accent-fill); color: var(--e-on-accent); }
 .agent-segment button:focus-visible { outline: none; box-shadow: var(--e-focus); }
 .agent-field a { color: var(--e-accent); }
+
+/* Apps for agents (settings). */
+.apps { display: flex; flex-direction: column; gap: 14px; }
+.app-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--e-r-md, 14px);
+  background: var(--e-field-fill); box-shadow: var(--e-field-shadow); }
+.app-card h4 { margin: 0; font: var(--e-t-label); }
+.app-agents { display: flex; flex-direction: column; gap: 6px; }
+.app-agents > span { color: var(--e-text-2); font: var(--e-t-caption); }
+.app-agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-agent-chips button {
+  padding: 5px 11px; border-radius: 999px; border: 1px solid var(--e-bubble-rim); background: var(--e-bubble-fill);
+  color: var(--e-text-2); font: 600 12px/1.2 var(--e-font); cursor: pointer;
+}
+.app-agent-chips button.on { background: var(--e-accent-fill); color: var(--e-on-accent); border-color: transparent; }
+.app-agent-chips button:focus-visible { outline: none; box-shadow: var(--e-focus); }
+.agent-inline .agent-field { flex: 1; }

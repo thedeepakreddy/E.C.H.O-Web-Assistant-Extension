@@ -12,7 +12,7 @@ interface Msg {
   /** Facts ECHO did not find in what it read for this conversation. */
   unverified?: string[];
 }
-interface Approval { id: string; action: string; detail: string; site: string; tabId?: number }
+interface Approval { id: string; action: string; detail: string; site: string; where?: string; tabId?: number }
 interface ActionLog { action: string; detail: string; status: string; ts: number }
 interface ChatInfo { activeId: string | null; temporary: boolean; title: string }
 interface ChatMeta { id: string; title: string; updated: number; count: number }
@@ -299,7 +299,7 @@ function Panel() {
       } else if (m.type === 'ECHO_STATE') {
         setStatus(m.state === 'Idle' ? '' : m.state);
       } else if (m.type === 'ECHO_APPROVAL_REQUEST') {
-        setApproval({ id: m.id, action: m.action, detail: m.detail, site: m.site, tabId: m.tabId });
+        setApproval({ id: m.id, action: m.action, detail: m.detail, site: m.site, where: m.where, tabId: m.tabId });
       } else if (m.type === 'ECHO_APPROVAL_CLEAR') {
         setApproval(prev => prev?.id === m.id ? null : prev);
       } else if (m.type === 'ECHO_ACTION_LOG') {
@@ -537,7 +537,7 @@ function Panel() {
       {approval && (
         <div className="echo-approval" role="alertdialog" aria-label="Approve browser action">
           <strong>{approvalAgent ? `Echo · ${taglineOf(approvalAgent.agent)} asks: allow this?` : 'Allow this browser action?'}</strong>
-          <span>{approval.detail} on {approval.site}</span>
+          <span>{approval.detail} {approval.where || `on ${approval.site}`}</span>
           <div className="echo-approval-buttons">
             <button onClick={() => answerApproval(false)}>Deny</button>
             <button onClick={() => answerApproval(true)}>Allow once</button>

@@ -81,7 +81,7 @@ chrome.runtime.sendMessage({ type: 'ECHO_APPROVAL_DETAILS', id }).then((r: any) 
     refresh();
     return;
   }
-  detailEl.textContent = `${r.approval.detail} on ${r.approval.site}`;
+  detailEl.textContent = `${r.approval.detail} ${r.approval.where || `on ${r.approval.site}`}`;
   loaded = true;
   refresh();
 }).catch(() => { detailEl.textContent = 'Could not load this request. Use the side panel.'; });

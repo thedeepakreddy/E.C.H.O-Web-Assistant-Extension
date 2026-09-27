@@ -11,7 +11,9 @@ import { createNodeToolHost } from './node-tools';
 import { deviceIdentity, indexedDbKeyStore } from './identity';
 import { browserToolsFor, resetLooking } from './browser-tools';
 import { createSessionManager, type SessionManager } from './sessions';
-import { AVATAR_AGENTS, allCommands, avatarByCharacter } from './registry';
+import { AVATAR_AGENTS, allCommands, avatarByAgentId, avatarByCharacter } from './registry';
+import { createAppApprovals } from './app-approvals';
+import { logAction, requestApprovalOutcome } from '../safety';
 import { TESTED_OPENCLAW, setupScript, setupCommand } from './setup-script';
 import { leaseFor, leasesReady, listLeases, onLeaseChange } from '../agents/leases';
 import { sayAs, setStateAs, draftAs } from '../bus';
@@ -33,6 +35,8 @@ export interface OpenClawStatus {
   commands: { state: 'unknown' | 'pending' | 'approved'; requestId?: string };
   /** Tools published, commands approved and both roles connected: avatars run on OpenClaw. */
   ready: boolean;
+  /** This ECHO may answer approvals (so agents' app sends can ask). */
+  approvals?: boolean;
 }
 
 const SETTINGS_KEY = 'echo_openclaw';
@@ -75,6 +79,8 @@ let sessions: SessionManager | null = null;
 let syncTools: (() => Promise<void>) | null = null;
 let toolsPublished = false;
 let serverVersion: string | undefined;
+/** Whether the gateway lets this ECHO answer approvals (granted when it connects with the gateway's key, as Turn on does). */
+let canApprove = false;
 let commandApproval: OpenClawStatus['commands'] = { state: 'unknown' };
 let approvalTimer: ReturnType<typeof setTimeout> | null = null;
 const APPROVAL_POLL_MS = 4_000;
@@ -208,19 +214,32 @@ async function start() {
   host = createNodeToolHost(nodeConn, tools);
   syncTools = sync;
 
+  const approvals = createAppApprovals({ request: (method, params) => operatorConn.request(method, params) }, {
+    tabOf: agentId => {
+      const character = avatarByAgentId(agentId)?.character;
+      return character ? leaseFor(character)?.tabId : undefined;
+    },
+    ask: ({ kind, detail, app, tabId, timeoutMs, signal }) =>
+      requestApprovalOutcome(kind === 'payment' ? 'app_payment' : 'app_send', detail, tabId, timeoutMs, { app, signal }),
+    log: (kind, detail, outcome) => { logAction(kind === 'payment' ? 'app_payment' : 'app_send', detail, outcome).catch(() => {}); },
+  });
+
   const operatorConn = createGatewayConnection({
     url: current.url, role: 'operator', sharedToken: current.sharedToken, identity, tokenStore,
     client: { id: 'webchat-ui', mode: 'webchat', version, platform: 'chrome', displayName: 'ECHO' },
-    scopes: ['operator.read', 'operator.write'], caps: ['tool-events'],
+    // Approvals: ECHO answers Echo guard's "Allow?" for sends and payments in connected apps.
+    scopes: ['operator.read', 'operator.write', 'operator.approvals'], caps: ['tool-events', 'plugin-approvals'],
     onState: s => {
       publishState('operator', s);
       if (s.kind === 'connected' || s.kind === 'pairing-required') startNode();
       forgetSharedTokenWhenPaired().catch(() => {});
     },
-    onEvent: event => sessions?.handleEvent(event),
+    onEvent: event => { sessions?.handleEvent(event); approvals.handleEvent(event); },
     onHello: (hello: HelloOk) => {
       serverVersion = (hello as any)?.server?.version;
+      canApprove = ((hello as any)?.auth?.scopes || []).includes('operator.approvals');
       sessions?.resume().catch(error => console.warn('[ECHO] Resuming agent runs failed:', error));
+      approvals.resume().catch(() => {});
       checkCommandApproval().catch(() => {});
     },
     // Any message on either socket keeps the whole worker, and so both sockets, alive.
@@ -296,7 +315,7 @@ export async function openClawRunPending(character: string): Promise<boolean> {
 export async function openClawStatus(): Promise<OpenClawStatus> {
   const s = await settings();
   return { enabled: s.enabled, url: s.url, hasToken: !!s.sharedToken, node: roleState.node, operator: roleState.operator,
-    serverVersion, testedVersion: TESTED_OPENCLAW, commands: commandApproval, ready: allReady() };
+    serverVersion, testedVersion: TESTED_OPENCLAW, commands: commandApproval, ready: allReady(), approvals: canApprove };
 }
 
 /**

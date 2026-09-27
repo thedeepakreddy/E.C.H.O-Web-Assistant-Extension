@@ -3,7 +3,7 @@
 // a token it made itself: the user never opens a terminal after the helper's
 // one-time install, never copies a token and never approves anything by hand.
 
-import { HELPER_HOST, helperInstallCommand } from './helper-install';
+import { HELPER_HOST, HELPER_VERSION, helperInstallCommand } from './helper-install';
 import { AVATAR_AGENTS, TOOL_NAMES, allCommands, toolNameFor } from './registry';
 import { agentsMd, soulMd, identityMd } from './setup-script';
 import { prepareOpenClawPairing, reconnectOpenClaw, saveOpenClawSettings } from './index';
@@ -11,6 +11,8 @@ import { getAuthConfig } from '../auth';
 
 export interface HelperInfo {
   helper: number;
+  /** Installed before this ECHO's version of the helper: install it again. */
+  outdated?: boolean;
   openclaw: { version: string } | null;
   running?: boolean;
   /** The model agents use, or null when no AI key is set up yet. */
@@ -39,7 +41,27 @@ async function ask(message: Record<string, unknown>): Promise<any | null> {
 }
 
 export async function helperInfo(): Promise<HelperInfo | null> {
-  return ask({ cmd: 'hello' });
+  const info: HelperInfo | null = await ask({ cmd: 'hello' });
+  return info ? { ...info, outdated: (Number(info.helper) || 0) < HELPER_VERSION } : null;
+}
+
+
+// --- apps for agents -------------------------------------------------------------------
+
+export type AppId = 'mail' | 'github';
+export interface AppInfo { available: boolean; connected: boolean; account?: string; agents?: string[] }
+
+export async function appsInfo(): Promise<Record<AppId, AppInfo> | null> {
+  return ask({ cmd: 'apps' });
+}
+
+/** Connect an app. The password or token passes through to Echo Helper; ECHO does not keep it. */
+export async function connectApp(req: Record<string, unknown>): Promise<{ account: string; agents: string[] }> {
+  return ask({ ...req, cmd: 'connect-app' });
+}
+export async function disconnectApp(app: AppId): Promise<void> { await ask({ cmd: 'disconnect-app', app }); }
+export async function setAppAgents(app: AppId, agents: string[]): Promise<string[]> {
+  return (await ask({ cmd: 'app-agents', app, agents }))?.agents || [];
 }
 
 /** The AI key already saved in ECHO's own settings, if it is one agents can use. */
@@ -75,7 +97,7 @@ function setupPayload() {
 export async function turnOnAgentMode(opts: { ai?: AiChoice; useEchoKey?: boolean },
   progress: (step: string) => void): Promise<TurnOnResult> {
   const info = await helperInfo();
-  if (!info?.openclaw) {
+  if (!info?.openclaw || info.outdated) {
     return { needsHelper: true, command: await helperInstallCommand(chrome.runtime.id, chrome.runtime.getManifest().version) };
   }
   let ai = opts.ai;

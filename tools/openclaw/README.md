@@ -64,6 +64,35 @@ missed while ECHO reconnected, and runs in flight survive a worker restart.
 Stopping an avatar aborts its run on the gateway. Paying and sending still ask
 the user, within the tool call's 30 s deadline.
 
+## Apps for agents, and asking before sending (Phase 4)
+
+Agents can use connected apps: **Email** (Gmail, iCloud, Yahoo or any
+IMAP/SMTP mailbox, with an app password) and **GitHub** (the GitHub CLI's
+login, or a token). Connect them in Settings → Apps for agents, and choose
+which agents may use each one; an agent not given an app never sees its tools
+(`tools.allow` gets `echo-mail__*` / `echo-github__*` per agent).
+
+- Both apps are MCP servers ECHO ships and Echo Helper installs next to itself
+  (`src/helper/echo-mail.mjs`, with imapflow and nodemailer pinned;
+  `src/helper/echo-github.mjs`, a bridge to GitHub's remote MCP server).
+  Credentials go straight from the settings page to the helper, into files only
+  the user can read (`~/.openclaw-echo/echo-helper/apps/`); they are never in
+  OpenClaw's settings, on a command line, or kept by ECHO. Connecting signs in
+  once to check.
+- GitHub agents can read, open issues and comment; the bridge leaves out
+  everything that pushes, merges or deletes.
+- **Approvals.** Echo guard (`src/helper/echo-guard.mjs`), an OpenClaw plugin,
+  pauses an ECHO agent's app call that sends a message or pays (the same rule
+  as the browser: send, reply, forward, post, comment, create an issue; pay,
+  buy, order). OpenClaw asks every approval client; ECHO is one (operator
+  scope `operator.approvals`, cap `plugin-approvals`) and shows its usual
+  Allow once / Deny in the agent's tab and the chat panel, answering before
+  the gateway's deadline. No answer, a stop, or no ECHO to ask all mean the
+  call is blocked. Reading, drafting and other changes run and are logged.
+- ECHO gets `operator.approvals` when it connects with the gateway's key
+  (Turn on). An ECHO paired earlier keeps working without it, and the Apps
+  section says to Turn on again, until then every app send is blocked.
+
 ## Tasks the user shows ECHO ("Watch me")
 
 **Watch me** in the Echo panel records the user's clicks, typing and choices on
@@ -120,13 +149,15 @@ Replies stream into the avatar's thread as they are written.
 
 | Command | What it proves |
 | --- | --- |
-| `npm test` | tool host, session manager (duplicate and missed events, stop, resume), browser tools (own tabs only, batched steps), approval deadlines, registry and setup script |
+| `npm test` | tool host, session manager (duplicate and missed events, stop, resume), browser tools (own tabs only, batched steps), approval deadlines, registry and setup script, Echo Helper (checked data, app credentials), Echo guard's send/pay rule, ECHO's app approvals, the email and GitHub apps |
 | `npm run openclaw:probe` | origin + device signature accepted, pairing, per-avatar tool isolation, tool round trip (no model) |
 | `npm run openclaw:e2e -- --approve [--agent-run]` | the built extension: pairing, reading a real tab, isolation, idle survival, worker-restart recovery |
 | `npm run openclaw:agents-e2e` | Phase 2, real model turns: setup script, pairing and token removal, eight agents isolated, two avatars in parallel, payment approval, stop, gateway-down fallback and reconnect |
 | `npm run openclaw:turn-on-e2e` | the Turn on button as a person uses it: one-time helper install from the copied command (run with a temp `HOME`), ECHO carrying on by itself to ready, the Echo panel's buttons, Turn off, and Turn on again from the Echo panel (restarts the gateway service; leaves it running) |
 | `npm run e2e:watch-me` | "Watch me" with no model: Watch me in the Echo panel, the recording bar (step count, Done, name, Save), nothing from ECHO's own controls recorded, the task under Your tasks, doing it again on a fresh page, a command typed while ECHO speaks |
 | `npm run openclaw:watch-me-e2e` | the same, then the site is redesigned (a new Start button, a renamed field): the replay stops at step 1, an agent gets the tab, finishes the task and reports back (turns agent mode on as the Turn on test does; a few model calls) |
+| `npm run openclaw:approvals-e2e` | Phase 4 with a throwaway gateway, a test mail app and a scripted model (no account, no quota): an agent's send waits for Allow in ECHO's chat panel, Allow sends, Deny blocks and the agent is told, reading runs without asking, an agent not given the app never sees it |
+| `npm run openclaw:stale-token-e2e` | a device token rotated on the gateway is forgotten and ECHO gets back in with the gateway's key (no browser) |
 | `npm run openclaw:harness-e2e` | Phase 3, no model: the avatar tools exactly as a model receives them (references, changes only, stale references refused, select/check/type, payment fields refused, list extraction, quote and field checks, screenshots) |
 | `npm run bench -- --openclaw` | EchoBench with the avatars on the gateway's model; tokens per task from the gateway's session records |
 | `node tools/openclaw/agent-reconnect.cjs` | real model turns keep calling ECHO's tools after the operator connection is replaced |

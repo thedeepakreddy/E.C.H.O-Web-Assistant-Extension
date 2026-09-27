@@ -36,7 +36,7 @@ import {
   openClawSetupCommand,
 } from './openclaw';
 import { setupScript } from './openclaw/setup-script';
-import { agentModeInfo, turnOnAgentMode, turnOffAgentMode } from './openclaw/agent-mode';
+import { agentModeInfo, turnOnAgentMode, turnOffAgentMode, appsInfo, connectApp, disconnectApp, setAppAgents, type AppId } from './openclaw/agent-mode';
 import { handleLocally } from './local-brain';
 import {
   DEFAULT_SCOPE, AGENT_IDS, leasesReady, leaseFor, leaseForTab, listLeases, scopeForTab, isAgentId,
@@ -64,7 +64,7 @@ const TRUSTED_ONLY = [
   'ECHO_SKILL_DELETE', 'ECHO_SKILLS_RESET', 'ECHO_ISOLATION_STATUS', 'ECHO_ISOLATION_CLOSE',
   'ECHO_OPEN_EXTENSION_DETAILS', 'ECHO_CLEAR_CONVERSATION',
   'ECHO_AGENT_LIST', 'ECHO_AGENT_ASSIGN', 'ECHO_AGENT_RELEASE', 'ECHO_AGENT_THREAD',
-  'ECHO_OPENCLAW_SAVE', 'ECHO_OPENCLAW_SETUP_SCRIPT', 'ECHO_OPENCLAW_SETUP_COMMAND',
+  'ECHO_OPENCLAW_SAVE', 'ECHO_OPENCLAW_SETUP_SCRIPT', 'ECHO_OPENCLAW_SETUP_COMMAND', 'ECHO_APPS',
 ];
 const fromApprovalFrame = (sender: chrome.runtime.MessageSender) =>
   String(sender.url || '').startsWith(chrome.runtime.getURL('approval.html'));
@@ -720,6 +720,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // --- OpenClaw gateway settings ----------------------------------------------------
+
+  // Apps agents can use (email, GitHub), through Echo Helper. Settings page only:
+  // a password or token passes through here to the helper and is not kept.
+  if (message.type === 'ECHO_APPS') {
+    (async () => {
+      const app = (['mail', 'github'].includes(message.app) ? message.app : '') as AppId;
+      switch (message.action) {
+        case 'status': return { success: true, apps: await appsInfo() };
+        case 'connect': {
+          if (!app) throw new Error('Unknown app.');
+          const fields = ['provider', 'address', 'password', 'imapHost', 'smtpHost', 'imapPort', 'smtpPort', 'source', 'token'];
+          const req: Record<string, unknown> = { app };
+          for (const f of fields) if (typeof message[f] === 'string' || typeof message[f] === 'number') req[f] = message[f];
+          if (Array.isArray(message.agents)) req.agents = message.agents.filter((a: unknown) => typeof a === 'string');
+          return { success: true, ...(await connectApp(req)) };
+        }
+        case 'disconnect':
+          if (!app) throw new Error('Unknown app.');
+          await disconnectApp(app);
+          return { success: true };
+        case 'agents':
+          if (!app || !Array.isArray(message.agents)) throw new Error('Unknown app.');
+          return { success: true, agents: await setAppAgents(app, message.agents.filter((a: unknown) => typeof a === 'string')) };
+        default:
+          throw new Error('Unknown request.');
+      }
+    })().then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 
   if (message.type === 'ECHO_OPENCLAW_STATUS') {
     // The Echo panel on a web page only needs on/off and how far along it is;

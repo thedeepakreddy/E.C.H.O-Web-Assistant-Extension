@@ -11,6 +11,8 @@ export interface ApprovalPrompt {
   action: string;
   detail: string;
   site: string;
+  /** Where it happens, as shown after the detail: "on mail.google.com", or "with Gmail" for an app. */
+  where: string;
   tabId?: number;
 }
 
@@ -71,21 +73,23 @@ export async function requestApproval(action: string, detail: string, tabId?: nu
 
 /** As requestApproval, saying how it ended, so an agent can be told the difference. */
 export async function requestApprovalOutcome(action: string, detail: string, tabId?: number,
-  timeoutMs: number = APPROVAL_TIMEOUT_MS): Promise<ApprovalOutcome> {
-  if (timeoutMs < MIN_APPROVAL_MS) return 'timeout';
+  timeoutMs: number = APPROVAL_TIMEOUT_MS, opts: { app?: string; signal?: AbortSignal } = {}): Promise<ApprovalOutcome> {
+  if (timeoutMs < MIN_APPROVAL_MS || opts.signal?.aborted) return 'timeout';
   const epoch = currentTaskEpoch(tabId);
-  let site = 'the current page';
-  if (tabId != null) {
+  let site = opts.app || 'the current page';
+  if (tabId != null && !opts.app) {
     try { site = new URL((await chrome.tabs.get(tabId)).url || '').hostname || site; } catch { /* no tab */ }
   }
   // Stopped while looking up the site: never show a prompt for a stopped task.
   if (currentTaskEpoch(tabId) !== epoch) return 'stopped';
   const prompt: ApprovalPrompt = {
-    id: crypto.randomUUID(), action, detail: detail.slice(0, 180), site, tabId,
+    id: crypto.randomUUID(), action, detail: detail.slice(0, 180), site, where: opts.app ? `with ${opts.app}` : `on ${site}`, tabId,
   };
   return new Promise(resolve => {
     const timer = setTimeout(() => close(prompt.id, 'timeout'), Math.min(timeoutMs, APPROVAL_TIMEOUT_MS));
     pending.set(prompt.id, { prompt, resolve, timer });
+    // Answered somewhere else (another ECHO, or the gateway gave up): take the prompt down.
+    opts.signal?.addEventListener('abort', () => close(prompt.id, 'stopped'), { once: true });
     broadcast(prompt);
   });
 }
