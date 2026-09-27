@@ -486,6 +486,7 @@ function Options() {
       </Group>
 
       <OpenClawGroup />
+      <ClaudeGroup />
 
       <Group title="Private Agent Browsing" footer="Tasks run in a separate private window: no cookies, logins or history from your normal browsing, HTTPS only, and ECHO still asks before paying or sending anything.">
         <Row label="Status">
@@ -553,6 +554,65 @@ function OpenClawGroup() {
       </div>
     </Group>
   </>);
+}
+
+interface ClaudeStatus { enabled: boolean; connected: boolean; tab: { id: number; title: string } | null; error?: string }
+const claude = (action: string, extra: Record<string, unknown> = {}) => chrome.runtime.sendMessage({ type: 'ECHO_CLAUDE', action, ...extra }) as Promise<any>;
+
+/** ECHO for Claude Desktop and Claude Code: Claude uses ECHO's browser tools in one tab the user shares. */
+function ClaudeGroup() {
+  const mode = useAgentMode();
+  const [status, setStatus] = useState<ClaudeStatus | null>(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState('');
+  const refresh = () => claude('status').then(r => { if (r?.success) setStatus(r.status); }).catch(() => {});
+  useEffect(() => {
+    refresh();
+    const timer = setInterval(refresh, 3000);
+    return () => clearInterval(timer);
+  }, []);
+  const needsHelper = mode.helper === null || !!mode.helper?.outdated;
+  const toggle = (on: boolean) => claude(on ? 'enable' : 'disable').then(r => { if (r?.success) setStatus(r.status); }).catch(() => {});
+  const add = (client: 'code' | 'desktop') => {
+    setBusy(client);
+    setNote('');
+    claude('add', { client })
+      .then(r => setNote(r?.success ? (client === 'desktop' ? 'Added to Claude Desktop. Quit and open Claude Desktop again to use it.' : 'Added to Claude Code. Start a new Claude Code session to use it.') : r?.error || 'Could not add it.'))
+      .catch(() => setNote('Could not reach Echo Helper.'))
+      .finally(() => setBusy(''));
+  };
+  return (
+    <Group title="Claude Desktop & Claude Code" footer={'Claude works only in the tab you share with it (chat panel → Assign Agent → Claude), '
+      + 'with ECHO\'s rules: no password or card fields, and paying or sending asks you here first.'}>
+      <Toggle id="claude-bridge" checked={!!status?.enabled} onChange={toggle} label="Let Claude use ECHO"
+        hint="Claude Desktop and Claude Code can read and use a tab you share, through ECHO." />
+      {status?.enabled && (
+        <div className="row stacked agent-setup-row">
+          <div className="agent-setup">
+            {needsHelper ? (
+              <>
+                <p className="agent-intro">This needs the newest Echo Helper, installed with one command.</p>
+                <div className="agent-buttons"><button className="agent-primary" onClick={() => mode.turnOn({ useEchoKey: true })}>Install Echo Helper</button></div>
+              </>
+            ) : (
+              <>
+                <span className={`agent-progress ${status.connected ? 'ready' : 'connecting'}`} role="status">
+                  <i aria-hidden="true" />{status.connected ? 'Ready: Claude can reach ECHO' : status.error || 'Connecting to Echo Helper…'}
+                </span>
+                <p className="agent-note">{status.tab ? <>Shared with Claude: <b>{status.tab.title}</b></> : 'No tab shared yet. In the chat panel, choose Assign Agent → Claude on the page you want.'}</p>
+                <div className="agent-buttons">
+                  <button className="agent-secondary" disabled={!!busy} onClick={() => add('code')}>{busy === 'code' ? 'Adding…' : 'Add to Claude Code'}</button>
+                  <button className="agent-secondary" disabled={!!busy} onClick={() => add('desktop')}>{busy === 'desktop' ? 'Adding…' : 'Add to Claude Desktop'}</button>
+                </div>
+                {note && <p className="agent-note" role="status">{note}</p>}
+                <p className="agent-note">With Claude Code's command-line tool you can also run <code>claude mcp add echo -- ~/.openclaw-echo/echo-helper/echo-mcp</code> (the button works without it).</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </Group>
+  );
 }
 
 // ---- macOS System Settings building blocks ----

@@ -26,7 +26,11 @@ interface AgentInfo { agent: string; tabId: number; children: number[]; title: s
 const DEFAULT_VIEW = 'default';
 // Every avatar is called Echo; the tagline tells them apart. The orb is the core.
 const AVATARS = [...CHARACTERS.map(c => ({ id: c.id, tagline: c.tagline })), { id: REACTOR, tagline: 'Core' }];
-const taglineOf = (id: string) => AVATARS.find(a => a.id === id)?.tagline || 'Core';
+const taglineOf = (id: string) => (id === CLAUDE ? 'Claude' : AVATARS.find(a => a.id === id)?.tagline || 'Core');
+// Claude (Desktop or Code) can hold a tab through ECHO's MCP server; it is not one of ECHO's agents.
+const CLAUDE = 'claude';
+/** Who works in a tab, as the user reads it. */
+const whoOf = (id: string) => (id === CLAUDE ? 'Claude' : `Echo · ${taglineOf(id)}`);
 // One word per avatar, for places with room for a word: "Style", "Analyst".
 const SHORT: Record<string, string> = { echo: 'Lab', 'echo-style': 'Style', 'echo-officer': 'Safety', 'echo-patrol': 'Patrol', 'echo-visionary': 'Tech', [REACTOR]: 'Core' };
 const shortOf = (id: string) => SHORT[id] || taglineOf(id).split(' ').pop()!.replace(/^./, c => c.toUpperCase());
@@ -36,6 +40,7 @@ const ownsTab = (a: AgentInfo, tabId: number | null) => tabId != null && (a.tabI
 
 /** A small round portrait for an avatar; the orb for the reactor. */
 function Portrait({ id, size = 22 }: { id: string; size?: number }) {
+  if (id === CLAUDE) return <span className="echo-avatar-letter" style={{ width: size, height: size, fontSize: size * 0.5 }} aria-hidden="true">C</span>;
   const c = characterById(id);
   return c
     ? <img className="echo-avatar-img" src={characterAsset(c.id, 'portrait')} alt="" width={size} height={size} />
@@ -206,6 +211,7 @@ function Panel() {
     setSetupOpen(setup);
     setHistoryOpen(false);
     refreshAgents();
+    refreshClaude();
   };
   const closeRoster = () => { setRosterOpen(false); setSetupOpen(false); };
   useEffect(() => {
@@ -217,6 +223,20 @@ function Panel() {
       if (r.echo_panel_view === 'agent-setup') { openRoster(true); chrome.storage.session.remove('echo_panel_view').catch(() => {}); }
     }).catch(() => {});
   }, []);
+  // Claude: shown when the user lets Claude use ECHO (settings).
+  const [claudeOn, setClaudeOn] = useState(false);
+  const refreshClaude = () => chrome.runtime.sendMessage({ type: 'ECHO_CLAUDE', action: 'status' })
+    .then((r: any) => setClaudeOn(!!r?.status?.enabled)).catch(() => {});
+  const shareWithClaude = () => {
+    chrome.runtime.sendMessage({ type: 'ECHO_AGENT_ASSIGN', agent: CLAUDE, tabId: activeTabRef.current ?? undefined })
+      .then((r: any) => {
+        if (!r?.success) throw new Error(r?.error || 'Could not share the tab.');
+        applyAgents(r.agents);
+        closeRoster();
+        flash('Claude can now use this tab.');
+      })
+      .catch(error => warn(error?.message || 'Could not share the tab.'));
+  };
   const releaseAvatar = (agent: string) => {
     chrome.runtime.sendMessage({ type: 'ECHO_AGENT_RELEASE', agent })
       .then((r: any) => { if (r?.success) applyAgents(r.agents); })
@@ -472,6 +492,9 @@ function Panel() {
   const viewAgent = agents.find(a => a.agent === view);
   const viewCharacter = onAvatar ? characterById(view) : character;
   const inFront = agents.find(a => ownsTab(a, activeTabId));
+  // ECHO's agents have threads; Claude is shown on its own.
+  const avatarAgents = agents.filter(a => a.agent !== CLAUDE);
+  const claudeLease = agents.find(a => a.agent === CLAUDE);
   const approvalAgent = approval?.tabId != null ? agents.find(a => ownsTab(a, approval.tabId!)) : undefined;
 
   return (
@@ -512,12 +535,18 @@ function Panel() {
         </span>
       </header>
 
-      {agents.length > 0 && (
+      {claudeLease && (
+        <div className="echo-claude-bar" role="status">
+          <Portrait id={CLAUDE} size={18} /><span className="echo-claude-bar-text">Claude is using <b>{claudeLease.title || 'a tab'}</b></span>
+          <button onClick={() => releaseAvatar(CLAUDE)} title="Claude stops using this tab">Stop sharing</button>
+        </div>
+      )}
+      {avatarAgents.length > 0 && (
         <div className="echo-threads" role="tablist" aria-label="Threads">
           <button role="tab" aria-selected={!onAvatar} className={`echo-thread ${!onAvatar ? 'on' : ''}`} onClick={() => showView(DEFAULT_VIEW)}>
             <Portrait id={character?.id || REACTOR} size={18} /><span>Echo</span>
           </button>
-          {agents.map(a => (
+          {avatarAgents.map(a => (
             <button key={a.agent} role="tab" aria-selected={view === a.agent} title={`Echo · ${taglineOf(a.agent)} — ${a.title}`}
               className={`echo-thread ${view === a.agent ? 'on' : ''}`} onClick={() => showView(a.agent)}>
               <Portrait id={a.agent} size={18} /><span>{taglineOf(a.agent)}</span>
@@ -536,7 +565,7 @@ function Panel() {
 
       {approval && (
         <div className="echo-approval" role="alertdialog" aria-label="Approve browser action">
-          <strong>{approvalAgent ? `Echo · ${taglineOf(approvalAgent.agent)} asks: allow this?` : 'Allow this browser action?'}</strong>
+          <strong>{approvalAgent ? `${whoOf(approvalAgent.agent)} asks: allow this?` : 'Allow this browser action?'}</strong>
           <span>{approval.detail} {approval.where || `on ${approval.site}`}</span>
           <div className="echo-approval-buttons">
             <button onClick={() => answerApproval(false)}>Deny</button>
@@ -578,7 +607,7 @@ function Panel() {
               </div>
               <div className="echo-tab-context">
                 {!site ? 'Open a web page to assign an agent to it.'
-                  : inFront ? <>This tab is with <b>Echo · {taglineOf(inFront.agent)}</b>.</>
+                  : inFront ? <>This tab is with <b>{whoOf(inFront.agent)}</b>.</>
                   : <>Choose an agent for <b>{site.host}</b>. It works there on its own.</>}
               </div>
               <div className="echo-avatar-grid">
@@ -607,6 +636,23 @@ function Panel() {
                   );
                 })}
               </div>
+              {claudeOn && (
+                <div className="echo-avatar-card echo-claude-card">
+                  <Portrait id={CLAUDE} size={36} />
+                  <span className="echo-claude-card-text">
+                    <span className="echo-avatar-name">Claude</span>
+                    <small className="echo-avatar-where" title={claudeLease?.title}>
+                      Desktop & Code · {claudeLease ? (ownsTab(claudeLease, activeTabId) ? 'on this tab' : `in ${claudeLease.title || 'a tab'}`) : 'uses the tab you share'}
+                    </small>
+                  </span>
+                  {claudeLease ? (
+                    <button className="echo-roster-action" onClick={() => releaseAvatar(CLAUDE)}>Stop sharing</button>
+                  ) : (
+                    <button className="echo-roster-action primary" disabled={!site || !!inFront} onClick={shareWithClaude}
+                      title={!site ? 'Open a regular web page first' : inFront ? 'This tab already has an agent' : 'Let Claude use this tab'}>Share this tab</button>
+                  )}
+                </div>
+              )}
             </>)}
           </div>
         )}

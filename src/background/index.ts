@@ -36,10 +36,11 @@ import {
   openClawSetupCommand,
 } from './openclaw';
 import { setupScript } from './openclaw/setup-script';
-import { agentModeInfo, turnOnAgentMode, turnOffAgentMode, appsInfo, connectApp, disconnectApp, setAppAgents, type AppId } from './openclaw/agent-mode';
+import { agentModeInfo, turnOnAgentMode, turnOffAgentMode, appsInfo, connectApp, disconnectApp, setAppAgents, addEchoToClaude, type AppId } from './openclaw/agent-mode';
 import { handleLocally } from './local-brain';
+import { startClaudeBridge, setClaudeBridge, claudeBridgeStatus } from './claude-bridge';
 import {
-  DEFAULT_SCOPE, AGENT_IDS, leasesReady, leaseFor, leaseForTab, listLeases, scopeForTab, isAgentId,
+  DEFAULT_SCOPE, AGENT_IDS, CLAUDE, leasesReady, leaseFor, leaseForTab, listLeases, scopeForTab, isAgentId, isSeatId,
   assignLease, releaseLease, releaseAllLeases, forgetTab, onLeaseChange,
 } from './agents/leases';
 
@@ -47,6 +48,8 @@ console.log('ECHO Background Service Worker initialized.');
 
 // Agents on ECHO's OpenClaw gateway (off unless enabled in settings).
 startOpenClaw();
+// ECHO for Claude Desktop and Claude Code (off unless turned on in settings).
+startClaudeBridge();
 
 // API keys and private history live in local storage. Content scripts only get
 // an explicitly filtered settings relay; pages cannot read the storage area.
@@ -64,7 +67,7 @@ const TRUSTED_ONLY = [
   'ECHO_SKILL_DELETE', 'ECHO_SKILLS_RESET', 'ECHO_ISOLATION_STATUS', 'ECHO_ISOLATION_CLOSE',
   'ECHO_OPEN_EXTENSION_DETAILS', 'ECHO_CLEAR_CONVERSATION',
   'ECHO_AGENT_LIST', 'ECHO_AGENT_ASSIGN', 'ECHO_AGENT_RELEASE', 'ECHO_AGENT_THREAD',
-  'ECHO_OPENCLAW_SAVE', 'ECHO_OPENCLAW_SETUP_SCRIPT', 'ECHO_OPENCLAW_SETUP_COMMAND', 'ECHO_APPS',
+  'ECHO_OPENCLAW_SAVE', 'ECHO_OPENCLAW_SETUP_SCRIPT', 'ECHO_OPENCLAW_SETUP_COMMAND', 'ECHO_APPS', 'ECHO_CLAUDE',
 ];
 const fromApprovalFrame = (sender: chrome.runtime.MessageSender) =>
   String(sender.url || '').startsWith(chrome.runtime.getURL('approval.html'));
@@ -190,7 +193,8 @@ const INCOGNITO_HELP = 'Private agent browsing needs ECHO to be allowed in Incog
 /** The agent that works in this tab: its own, or (agent mode on) a free one given the tab. */
 async function agentForTask(tabId: number): Promise<string | null> {
   const owner = leaseForTab(tabId);
-  if (owner) return owner.agent;
+  // Claude holds its tab for itself; it is not one of ECHO's agents.
+  if (owner) return owner.agent === CLAUDE ? null : owner.agent;
   if (!(await openClawStatus().catch(() => null))?.ready) return null;
   // The character on the page first, so the one the user sees is the one who does it.
   const { echo_avatar } = await chrome.storage.local.get(['echo_avatar']);
@@ -721,6 +725,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // --- OpenClaw gateway settings ----------------------------------------------------
 
+  // ECHO for Claude Desktop and Claude Code. Settings page and chat panel only.
+  if (message.type === 'ECHO_CLAUDE') {
+    (async () => {
+      switch (message.action) {
+        case 'status': return { success: true, status: await claudeBridgeStatus() };
+        case 'enable': await setClaudeBridge(true); return { success: true, status: await claudeBridgeStatus() };
+        case 'disable':
+          await setClaudeBridge(false);
+          await releaseLease(CLAUDE);
+          return { success: true, status: await claudeBridgeStatus() };
+        case 'add': {
+          const client = message.client === 'desktop' ? 'desktop' : message.client === 'code' ? 'code' : '';
+          if (!client) throw new Error('Unknown Claude app.');
+          return { success: true, ...(await addEchoToClaude(client)) };
+        }
+        default: throw new Error('Unknown request.');
+      }
+    })().then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   // Apps agents can use (email, GitHub), through Echo Helper. Settings page only:
   // a password or token passes through here to the helper and is not kept.
   if (message.type === 'ECHO_APPS') {
@@ -824,7 +849,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'ECHO_AGENT_ASSIGN') {
     (async () => {
-      if (!isAgentId(message.agent)) throw new Error('Unknown avatar.');
+      // An agent, or Claude (when the user shares a tab with it).
+      if (!isSeatId(message.agent)) throw new Error('Unknown avatar.');
       let tabId = Number(message.tabId);
       if (!Number.isInteger(tabId)) {
         const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -842,7 +868,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'ECHO_AGENT_RELEASE') {
     (async () => {
-      if (!isAgentId(message.agent)) throw new Error('Unknown avatar.');
+      if (!isSeatId(message.agent)) throw new Error('Unknown avatar.');
       await releaseLease(message.agent);
       return { success: true, agents: await agentList() };
     })().then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));

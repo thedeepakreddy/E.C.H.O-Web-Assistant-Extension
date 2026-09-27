@@ -26,6 +26,12 @@ export interface Lease {
 const KEY = 'echo_agent_leases';
 
 export const AGENT_IDS: string[] = [...CHARACTERS.map(c => c.id), REACTOR];
+/**
+ * Claude (Desktop or Code, through ECHO's MCP server) holds a tab the same
+ * way, once the user shares one with it. It is not one of ECHO's agents.
+ */
+export const CLAUDE = 'claude';
+const SEAT_IDS = [...AGENT_IDS, CLAUDE];
 
 let leases: Record<string, Lease> = {};
 let writes: Promise<unknown> = Promise.resolve();
@@ -39,7 +45,7 @@ function adopt(raw: unknown) {
   const next: Record<string, Lease> = {};
   if (raw && typeof raw === 'object') {
     for (const [agent, lease] of Object.entries(raw as Record<string, unknown>)) {
-      if (AGENT_IDS.includes(agent) && valid(lease)) next[agent] = lease;
+      if (SEAT_IDS.includes(agent) && valid(lease)) next[agent] = lease;
     }
   }
   leases = next;
@@ -87,6 +93,10 @@ export function tabAccessible(scope: string, tabId: number): boolean {
 export function isAgentId(value: unknown): value is string {
   return typeof value === 'string' && AGENT_IDS.includes(value);
 }
+/** An agent, or Claude: anything that can hold a tab. */
+export function isSeatId(value: unknown): value is string {
+  return typeof value === 'string' && SEAT_IDS.includes(value);
+}
 
 // --- changes ------------------------------------------------------------------
 
@@ -105,7 +115,7 @@ function notify(agent: string, lease: Lease | null, previous: Lease | null) {
  */
 export async function assignLease(agent: string, tabId: number): Promise<Lease> {
   await leasesReady;
-  if (!isAgentId(agent)) throw new Error('Unknown avatar.');
+  if (!isSeatId(agent)) throw new Error('Unknown avatar.');
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) throw new Error('That tab is closed.');
   if (tab.incognito) throw new Error('Avatars can\'t be assigned to private windows.');

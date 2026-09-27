@@ -93,6 +93,28 @@ which agents may use each one; an agent not given an app never sees its tools
   (Turn on). An ECHO paired earlier keeps working without it, and the Apps
   section says to Turn on again, until then every app send is blocked.
 
+## ECHO for Claude Desktop and Claude Code (Phase 5)
+
+ECHO is also an MCP server, so Claude Desktop and Claude Code can use the
+user's real browser through it. It is off until Settings → Claude Desktop &
+Claude Code → **Let Claude use ECHO**, and it needs no OpenClaw.
+
+- Claude starts `echo-mcp` (installed with Echo Helper:
+  `~/.openclaw-echo/echo-helper/echo-mcp`; the settings page adds it to Claude
+  Code with `claude mcp add --scope user`, or to Claude Desktop's config file
+  after a backup). echo-mcp reaches ECHO through the helper's Unix socket
+  (mode 0600, open only while ECHO keeps the helper running), and Chrome's
+  native messaging carries each call to ECHO and its answer back.
+- Claude works only in the tab the user shares with it (chat panel → Assign
+  Agent → Claude → Share this tab), and in tabs it opens from there: a seat
+  like an agent's, with ECHO's browser tools exactly as agents have them
+  (observe, act, navigate, read, extract, verify…, not watch). The same rules
+  hold: no password, card or code fields; paying or sending waits for
+  "Claude asks: allow this?" in ECHO, and a denied send is not asked again;
+  actions are logged. "Stop sharing" takes the tab back.
+- Tool list: live from ECHO, or the copy installed with echo-mcp when Chrome
+  is closed; calls then say how to turn ECHO on.
+
 ## Tasks the user shows ECHO ("Watch me")
 
 **Watch me** in the Echo panel records the user's clicks, typing and choices on
@@ -157,6 +179,7 @@ Replies stream into the avatar's thread as they are written.
 | `npm run e2e:watch-me` | "Watch me" with no model: Watch me in the Echo panel, the recording bar (step count, Done, name, Save), nothing from ECHO's own controls recorded, the task under Your tasks, doing it again on a fresh page, a command typed while ECHO speaks |
 | `npm run openclaw:watch-me-e2e` | the same, then the site is redesigned (a new Start button, a renamed field): the replay stops at step 1, an agent gets the tab, finishes the task and reports back (turns agent mode on as the Turn on test does; a few model calls) |
 | `npm run openclaw:approvals-e2e` | Phase 4 with a throwaway gateway, a test mail app and a scripted model (no account, no quota): an agent's send waits for Allow in ECHO's chat panel, Allow sends, Deny blocks and the agent is told, reading runs without asking, an agent not given the app never sees it |
+| `npm run e2e:claude` | Phase 5, playing Claude over MCP against ECHO in Chrome (helper installed the one-time way, no OpenClaw, no model): tools listed, no tab until one is shared, the shared page read with references, a send waits for "Claude asks: allow this?" (Allow sends, Deny doesn't, not asked again), Stop sharing, turned off |
 | `npm run openclaw:stale-token-e2e` | a device token rotated on the gateway is forgotten and ECHO gets back in with the gateway's key (no browser) |
 | `npm run openclaw:harness-e2e` | Phase 3, no model: the avatar tools exactly as a model receives them (references, changes only, stale references refused, select/check/type, payment fields refused, list extraction, quote and field checks, screenshots) |
 | `npm run bench -- --openclaw` | EchoBench with the avatars on the gateway's model; tokens per task from the gateway's session records |
