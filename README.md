@@ -12,7 +12,7 @@ ECHO lives inside Chrome as an animated assistant, a persistent side-panel chat,
 
 The unusual part is what happens behind the interface: ECHO tries fast local methods before contacting a cloud model. Simple requests stay quick and private, cached answers are reused, supported Chrome installations can use on-device AI, and cloud models are reserved for work that genuinely needs them.
 
-> [Download the ready-to-install ECHO V2 ZIP](package%20for%20sharing/Echo_Web_Assistant_v2.zip) · [Build from source](#build-from-source) · [See everything ECHO can do](#complete-feature-guide)
+> [Download the ready-to-install ECHO V3 ZIP](package%20for%20sharing/Echo_Web_Assistant_v3.zip) · [Build from source](#build-from-source) · [See everything ECHO can do](#complete-feature-guide)
 
 ---
 
@@ -58,13 +58,13 @@ Select text in a field and use ECHO Writer to rewrite it. Review the result, cop
 
 ---
 
-## Install ECHO V2
+## Install ECHO V3
 
 ### Option A — Use the ready-made ZIP
 
 This is the easiest route for non-technical users.
 
-1. [Download `Echo_Web_Assistant_v2.zip`](package%20for%20sharing/Echo_Web_Assistant_v2.zip).
+1. [Download `Echo_Web_Assistant_v3.zip`](package%20for%20sharing/Echo_Web_Assistant_v3.zip).
 2. Unzip it. The extracted folder contains the production extension files.
 3. Open Chrome and enter `chrome://extensions` in the address bar.
 4. Turn on **Developer mode** in the upper-right corner.
