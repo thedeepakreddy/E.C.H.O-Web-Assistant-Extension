@@ -1,18 +1,34 @@
 # ECHO Online
 
-### A local-first AI browser assistant that can understand pages, operate websites, remember useful information, and automate repeatable work—by text or voice.
+### A local-first AI browser assistant that understands pages, operates websites, remembers what matters, learns tasks by watching you, and runs agents in your tabs—by text or voice.
 
-[![Version](https://img.shields.io/badge/version-2.0.0-b8a1ff)](manifest.json)
+[![Version](https://img.shields.io/badge/version-3.0.0-b8a1ff)](manifest.json)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)](manifest.json)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
-[![Tests](https://img.shields.io/badge/tests-40%20passing-34C759)](tests/extension.test.cjs)
+[![Tests](https://img.shields.io/badge/tests-127%20passing-34C759)](tests)
 [![License](https://img.shields.io/badge/license-ISC-lightgrey)](package.json)
 
-ECHO lives inside Chrome as an animated assistant, a persistent side-panel chat, and a complete settings dashboard. It can summarize and explain pages, navigate and click, fill safe form fields, extract structured information, manage tabs, record workflows, monitor pages, search the web, work with video transcripts, and help rewrite selected text.
+ECHO lives inside Chrome as an animated assistant, a persistent side-panel chat, and a complete settings dashboard. It can summarize and explain pages, navigate and click, fill safe form fields, extract structured information, manage tabs, learn a task by watching you do it, monitor pages, search the web, work with video transcripts, and help rewrite selected text.
+
+With **agent mode** on, ECHO's characters become agents you assign to tabs: each works on its own in its tab, can use apps you connect (email, GitHub), and asks you before it pays or sends anything. **Claude Desktop and Claude Code** can use ECHO too, in a tab you share with them.
 
 The unusual part is what happens behind the interface: ECHO tries fast local methods before contacting a cloud model. Simple requests stay quick and private, cached answers are reused, supported Chrome installations can use on-device AI, and cloud models are reserved for work that genuinely needs them.
 
-> [Download the ready-to-install ECHO V3 ZIP](package%20for%20sharing/Echo_Web_Assistant_v3.zip) · [Build from source](#build-from-source) · [See everything ECHO can do](#complete-feature-guide)
+> [Download the ready-to-install ECHO V3 ZIP](package%20for%20sharing/Echo_Web_Assistant_v3.zip) · [Build from source](#option-b--build-from-source) · [What's new in V3](#whats-new-in-v3) · [See everything ECHO can do](#complete-feature-guide)
+
+---
+
+## What's new in V3
+
+| Feature | What it does |
+| --- | --- |
+| **Agents in your tabs** | Assign one of ECHO's characters to a tab and it works there on its own, even on long tasks, through [OpenClaw](https://docs.openclaw.ai) on your computer. [More](#agents-in-your-tabs) |
+| **One Turn on button** | Agent mode turns on from the chat panel, the Echo panel or Settings. The only setup is one pasted command, once. [More](#turn-on-agents-optional) |
+| **Watch me** | Show ECHO a task once; press it under **Your tasks** to do it again. If the site changed, an agent finishes it. [More](#watch-me-show-echo-a-task-once) |
+| **Apps for agents** | Agents can use your email (Gmail, iCloud, Yahoo, any IMAP mailbox) and GitHub. Every email they send and every post they make asks you first. [More](#apps-for-agents-email-and-github) |
+| **ECHO for Claude** | Claude Desktop and Claude Code can use ECHO's browser tools in a tab you share, with ECHO's rules. [More](#echo-for-claude-desktop-and-claude-code) |
+| **A simpler chat panel** | An **Assign Agent** button, one ⋯ menu for everything else, and a new Echo panel with agent, chat-panel and settings buttons. |
+| **Honest answers** | Agents read pages by reference, prove results before claiming success, and ECHO marks any number or name it could not find on the page. |
 
 ---
 
@@ -30,19 +46,21 @@ Every avatar uses the real production animation component and recolors the float
 
 ### On any webpage
 
-Press `Ctrl/Cmd + Shift + E` to wake ECHO, click the avatar to speak, or long-press it to open the command bar.
+Press `Ctrl/Cmd + Shift + E` to wake ECHO, click the avatar to speak, or long-press it to open the **Echo panel**.
 
-![ECHO command bar open over a webpage](docs/screenshots/in-page-command-bar.png)
+![The Echo panel over a webpage: Turn on agents, chat panel and settings buttons, quick actions and Your tasks](docs/screenshots/v3-echo-panel.png)
 
-The floating assistant stays above the current page without replacing it. Quick actions provide one-click access to summarization, explanations, translation, form filling, page watching, and tab management.
+The floating assistant stays above the current page without replacing it. The Echo panel has **Turn on agents**, buttons for the chat panel and settings, one-click actions (summarize, explain, translate, fill a form, **Watch me**, list tabs), and **Your tasks**: the tasks you showed ECHO, ready to do again.
 
 ### In the side panel
 
 Press `Ctrl/Cmd + Shift + O` for a persistent conversation that follows you between tabs.
 
-![ECHO side-panel conversation with local and cloud tier labels](docs/screenshots/side-panel-conversation.png)
+| Chat | Assign Agent |
+| --- | --- |
+| ![The ECHO chat panel](docs/screenshots/v3-side-panel.png) | ![Assign Agent: choose an agent for this tab](docs/screenshots/v3-assign-agent.png) |
 
-Every answer can show which intelligence tier produced it. The panel also displays token usage, local-routing statistics, remembered-site status, citations, recent browser actions, temporary chats, private-agent mode, saved skills, and attached tabs.
+**Assign Agent** gives the current tab to one of ECHO's agents; each agent you assign gets its own thread. Every answer can show which intelligence tier produced it, with citations for web searches. Chat history, temporary chats, page memory for the site, recent actions and settings are one ⋯ menu away.
 
 ### When ECHO notices an opportunity to help
 
@@ -104,6 +122,19 @@ An API key is required when a request reaches the cloud tier. ECHO supports:
 
 API keys stay in Chrome's local extension storage. They are excluded from ECHO's data export.
 
+### Turn on agents (optional)
+
+Agents are optional; everything above works without them. They run on [OpenClaw](https://docs.openclaw.ai) (free and open source) on your own computer.
+
+1. Press **Turn on agents** on the Echo panel, **Turn on** in the chat panel's Assign Agent sheet, or **Turn on agent mode** in Settings.
+2. **The first time**, ECHO shows one command to copy and paste in Terminal. It installs **Echo Helper**, a small program that lets ECHO's buttons set up and start OpenClaw (Chrome never lets an extension install programs), and OpenClaw itself if it is missing.
+3. ECHO carries on by itself: it sets up your agents, starts OpenClaw as a background service and approves your browser. It takes about a minute.
+4. If OpenClaw has no AI yet, ECHO uses the Gemini or Claude key already saved in ECHO, or asks for one. The key goes to OpenClaw on this computer.
+
+<img src="docs/screenshots/v3-agent-mode-setup.png" alt="Agent mode: the one-time Echo Helper install" width="320">
+
+Needs macOS or Linux, and Node.js (OpenClaw's requirement). **Turn off** stops OpenClaw's service. After the first time, Turn on and Turn off are just buttons.
+
 ---
 
 ## First five minutes
@@ -120,9 +151,10 @@ fill this form
 list my open tabs
 remember that I prefer short bullet points
 what did I read today?
-record a workflow
 watch this page and tell me when the price drops below 800
 ```
+
+Then try **Watch me** on a form you fill often, and (with agent mode on) **Assign Agent** on a shopping or research tab.
 
 Useful controls:
 
@@ -130,7 +162,10 @@ Useful controls:
 | --- | --- |
 | Wake or hide the floating assistant | `Ctrl/Cmd + Shift + E` |
 | Open the persistent side panel | `Ctrl/Cmd + Shift + O` |
-| Open the in-page command bar | `Ctrl/Cmd + Shift + K` or long-press the avatar |
+| Open the Echo panel | `Ctrl/Cmd + Shift + K` or long-press the avatar |
+| Teach ECHO a task | **Watch me** on the Echo panel, then **Done** on the recording bar |
+| Give a tab to an agent | Chat panel → **Assign Agent** |
+| Share a tab with Claude | Chat panel → **Assign Agent → Claude → Share this tab** |
 | Start/stop voice input | Click the avatar |
 | Move the assistant | Drag the avatar |
 | Run a saved skill | Type `/shortcut` |
@@ -147,38 +182,37 @@ The in-page experience includes:
 
 - Seven animated character choices plus the classic reactor orb.
 - Listening, thinking, speaking, error, and idle status feedback.
-- A glass command bar with voice input, stop control, text input, and quick actions.
+- The Echo panel: voice input, stop control, text input, quick actions, **Your tasks**, and buttons to turn on agents, open the chat panel and open settings.
+- A recording bar at the top of the page while ECHO watches you (steps so far, **Done**, **Cancel**).
 - A small response bubble beside the avatar.
 - ECHO Writer cards for selected text.
 - Proactive suggestion toasts.
-- A separately framed approval prompt for payments and sending messages.
+- A separately framed approval prompt for payments and sending messages, including those by agents and by Claude.
 - Drag positioning saved across pages.
 
-| Command bar | Proactive help | ECHO Writer |
-| --- | --- | --- |
-| ![Command bar](docs/screenshots/in-page-command-bar.png) | ![Proactive suggestion](docs/screenshots/in-page-proactive-suggestion.png) | ![Writer card](docs/screenshots/in-page-writer.png) |
+| Echo panel | Watch me | Proactive help | ECHO Writer |
+| --- | --- | --- | --- |
+| ![Echo panel](docs/screenshots/v3-echo-panel.png) | ![Watch me recording bar](docs/screenshots/v3-watch-me-recording.png) | ![Proactive suggestion](docs/screenshots/in-page-proactive-suggestion.png) | ![Writer card](docs/screenshots/in-page-writer.png) |
 
 ### Persistent side panel
 
 The side panel is the main workspace for longer conversations and multi-step tasks.
 
-| Home | Conversation | History |
+| Home | Assign Agent | History |
 | --- | --- | --- |
-| ![Side-panel home](docs/screenshots/side-panel-home.png) | ![Conversation](docs/screenshots/side-panel-conversation.png) | ![History](docs/screenshots/side-panel-history.png) |
+| ![Side-panel home](docs/screenshots/v3-side-panel.png) | ![Assign Agent](docs/screenshots/v3-assign-agent.png) | ![History](docs/screenshots/side-panel-history.png) |
 
 It includes:
 
+- **Assign Agent**: give the current tab to one of ECHO's agents, turn agent mode on, and see which agent works where. Each agent gets its own thread, with starter ideas.
 - Saved and temporary chats.
-- Tier badges for instant, cached, on-device, and cloud answers.
+- Tier badges for instant, cached, on-device, and cloud answers, and an "unverified" mark on facts an agent could not find on the page.
 - Cited sources for supported web-search answers.
-- Per-task and per-session cloud token counters.
-- The percentage of requests answered locally.
-- Page-memory controls for the active site.
-- Chat history with reopen and delete actions.
-- `/` skill completion and `@` tab completion.
+- `/` skill completion and `@` tab completion, as buttons in a new chat.
 - Web-search and private-window switches.
 - A visible stop button while work is running.
-- Approval prompts and recent action logs.
+- Approval prompts for payments and sends, by ECHO, its agents, their apps, or Claude.
+- One ⋯ menu for chat history, temporary chat, page memory for the site, recent actions and settings.
 
 ### Settings
 
@@ -262,6 +296,22 @@ Runs browser tasks in a separate incognito window with no normal cookies, logins
 
 Checks browser permissions, the active tab, provider configuration, API-key presence, and model availability without sending a prompt or spending tokens.
 
+#### Agent mode
+
+**Turn on agent mode** (the one-time Echo Helper install, then a button), live progress while it turns on, **Turn off**, and Advanced options for people who run OpenClaw themselves (its address and token, or the full setup command).
+
+#### Apps for agents
+
+Connect **Email** (Gmail, iCloud, Yahoo, or any IMAP/SMTP mailbox, with an app password) and **GitHub** (your GitHub CLI sign-in, or a token), and choose which agents may use each one.
+
+<img src="docs/screenshots/v3-apps-settings.png" alt="Apps for agents in Settings" width="560">
+
+#### Claude Desktop & Claude Code
+
+**Let Claude use ECHO** (off by default), its status, the tab you shared, and **Add to Claude Code** / **Add to Claude Desktop**.
+
+<img src="docs/screenshots/v3-claude-settings.png" alt="Claude Desktop and Claude Code in Settings" width="640">
+
 ---
 
 ## Complete feature guide
@@ -300,15 +350,35 @@ ECHO scores visible fields against saved profile information and fills only safe
 
 It fills but does not submit the form. You remain in control of the final action.
 
-### Record and replay workflows
+### Agents in your tabs
 
-Say **“record a workflow”**, perform a sequence, then stop and name it. ECHO records committed clicks, typing, dropdown choices, scrolling, and navigation.
+With agent mode on, **Assign Agent** gives a tab to one of ECHO's eight agents (the seven characters and the Core orb). Each agent is an OpenClaw agent that:
 
-Each recorded element keeps several selector candidates plus a readable label. Playback tries them in order and falls back to label matching, making workflows more resilient to generated IDs and changing CSS classes. Password and payment fields are not recorded.
+- works only in its own tab (and tabs it opens from there), in parallel with the others, and keeps working when you look away;
+- reads the page as text with references like `[e12]`, acts by reference, and sees only what changed after each step, which keeps answers accurate and tokens low;
+- proves a result (the URL, exact quotes, field states) before saying a task is done; ECHO marks any number, name or date in a reply that no tool actually read;
+- uses your recorded tasks, page watchers, and connected apps;
+- asks you before paying or sending anything, and stops if you deny it.
+
+If OpenClaw is not running, an agent falls back to ECHO's built-in brain, so a request is never left hanging. Talk to an agent in its thread in the chat panel, or on its tab's Echo panel.
+
+### Watch me: show ECHO a task once
+
+Press **Watch me** on the Echo panel and do the task as usual. A bar at the top of the page counts the steps; press **Done**, name the task, and **Save**. It appears under **Your tasks** on the Echo panel: press it to do the task again.
+
+| Recording | Naming it |
+| --- | --- |
+| ![ECHO is watching: 5 steps, Done, Cancel](docs/screenshots/v3-watch-me-recording.png) | ![Name it and Save](docs/screenshots/v3-watch-me-name.png) |
+
+- ECHO records committed clicks, typing, dropdown choices, scrolling and navigation, never passwords, card fields or ECHO's own controls.
+- Each step keeps several selector candidates and a readable label, so replays survive generated IDs and changing class names.
+- A replay uses no AI and no tokens. If the site changed and a step no longer fits, and agent mode is on, an agent takes the tab, does that step itself and runs the rest.
+- "Do *task* for Bob" is not a plain replay: an agent reads the recorded steps and does them with the new details.
+- You can still say "record a workflow", "stop recording and call it …", "run …" and "list my workflows".
 
 ### Monitor pages
 
-Create a watcher for:
+Ask ECHO (or an agent) to watch a page, for example "tell me when this page changes" or "watch this page and tell me when the price drops below 800". A watcher can look for:
 
 - Any content change.
 - A value moving below or above a threshold.
@@ -374,6 +444,32 @@ Type `@` in the side panel to attach an open tab. Attached content is fenced and
 
 Private mode confines the task to a separate incognito window, requires HTTPS, and prevents tools from silently escaping back into the normal signed-in browsing context.
 
+### Apps for agents: email and GitHub
+
+Connect apps in **Settings → Apps for agents** and choose which agents may use each one (an agent without an app never sees its tools).
+
+- **Email**: search, read, send and reply from your own address. It signs in with an **app password** (Gmail needs 2-Step Verification; iCloud and Yahoo have their own), not your usual password.
+- **GitHub**: read repositories, issues and pull requests, open issues and comment. Agents cannot push, merge or delete.
+- **Asking before sending**: every email an agent sends and every post it makes waits for **Allow once** or **Deny** in ECHO, exactly like a send in the browser. No answer in time, or Stop, means no.
+
+<img src="docs/screenshots/v3-app-approval.png" alt="An agent's email waits for Allow in the chat panel" width="320">
+
+Passwords and tokens go straight from the settings page to Echo Helper, into files only you can read. They are not kept by ECHO, not in OpenClaw's settings, and never on a command line.
+
+### ECHO for Claude Desktop and Claude Code
+
+ECHO is also an MCP server, so Claude can use your real browser through it:
+
+1. **Settings → Claude Desktop & Claude Code → Let Claude use ECHO** (it needs Echo Helper; ECHO offers to install it).
+2. **Add to Claude Code** or **Add to Claude Desktop** (or, with Claude Code's command-line tool: `claude mcp add echo -- ~/.openclaw-echo/echo-helper/echo-mcp`).
+3. In the chat panel, **Assign Agent → Claude → Share this tab** on the page you want Claude to use. **Stop sharing** takes it back.
+
+| Sharing a tab | Claude asks before sending |
+| --- | --- |
+| ![Claude is using a shared tab](docs/screenshots/v3-claude-share.png) | ![Claude asks: allow this?](docs/screenshots/v3-claude-approval.png) |
+
+Claude gets ECHO's browser tools (observe, act, navigate, read, extract, verify and more) in the shared tab only, with ECHO's rules: no password, card or code fields, and paying or sending waits for **"Claude asks: allow this?"**. It needs no OpenClaw, and nothing listens on the network: Claude's `echo-mcp` reaches ECHO through Echo Helper over a socket only you can open.
+
 ---
 
 ## How the local-first brain works
@@ -407,6 +503,8 @@ rules    + memory   AI/fallback  + tools
 
 The important rule is that each local tier may say **“I am not confident”** and pass the request onward. A fast local guess is not considered a success.
 
+Agents follow the same idea: local skills (stop, workflows, extractors) answer first, a recorded task replays without a model, and only real work reaches the agent's model.
+
 ### Why this saves tokens
 
 - Simple work never sends a prompt.
@@ -432,7 +530,15 @@ ECHO can operate websites, so its boundaries are designed to be visible and cons
 
 ### Approval before consequential actions
 
-ECHO asks before actions that can pay, send an email, or send a message. Approval is tied to the originating tab so another page cannot approve it.
+ECHO asks before actions that can pay, send an email, or send a message, and only then; everything else runs and is written to the action log. The same rule covers ECHO's agents, the apps they use (through Echo guard, a small OpenClaw plugin), and Claude. Approval is tied to the originating tab so another page cannot approve it, and a denied send is not asked about again in the same task.
+
+### Agents and helpers stay in bounds
+
+- Each agent works only in the tab it was given, and may use only its own tools and the apps you chose for it. Agents have no shell, no files, and no OpenClaw browser.
+- Agents may open addresses they have seen on their pages, site home pages or web searches; they never guess deep links.
+- Echo Helper starts only for ECHO's extension id and runs a fixed set of commands with checked arguments, never a shell or a command it was sent.
+- OpenClaw listens on this computer only and accepts only ECHO; ECHO pairs with it using a key it made itself.
+- Claude works only in a tab you share, and only while **Let Claude use ECHO** is on.
 
 ### Prompt-injection boundaries
 
@@ -453,6 +559,7 @@ ECHO asks before actions that can pay, send an email, or send a message. Approva
 | `downloads` | Export user-requested data and highlights |
 | `contextMenus` | Offer ECHO actions on selected page text |
 | `<all_urls>` host access | Run the assistant on the sites where you explicitly invoke it |
+| `nativeMessaging` | Talk to Echo Helper, which turns agent mode on and off, connects apps, and lets Claude reach ECHO |
 
 ---
 
@@ -488,6 +595,23 @@ Open `chrome://extensions`, select ECHO's **Details**, and enable **Allow in Inc
 
 The website may have changed its labels or layout. Record that step again. ECHO deliberately avoids replaying against ambiguous or sensitive elements.
 
+### Agent mode does not turn on
+
+- The first time, paste the install command ECHO shows into Terminal; ECHO carries on by itself when it finishes.
+- Keep ECHO's chat panel or settings open while it turns on (about a minute).
+- If it says the AI is out of quota, your key's free tier is used up for now; wait a minute, or use a key with more quota.
+- Running OpenClaw your own way: use **Settings → Agent mode → Advanced** to enter its address and token.
+
+### An agent cannot send an email or post
+
+The agent needs the app (**Settings → Apps for agents**, with that agent chosen), and ECHO must be open to ask you. If Settings says agents can't ask yet, press **Turn agent mode on again** once.
+
+### Claude cannot reach ECHO
+
+- **Settings → Claude Desktop & Claude Code**: **Let Claude use ECHO** must be on, and the status must say Ready.
+- Share a tab with Claude (chat panel → **Assign Agent → Claude**).
+- After **Add to Claude Desktop**, quit and reopen Claude Desktop; after **Add to Claude Code**, start a new session.
+
 ### Chrome says the unpacked extension is missing
 
 The extracted or `dist/` folder was probably moved. Remove the broken entry from `chrome://extensions` and load the folder again from its permanent location.
@@ -508,6 +632,8 @@ The extracted or `dist/` folder was probably moved. Remove the broken entry from
 | Local data | Chrome storage plus IndexedDB |
 | On-device AI | Chrome `Summarizer` / `LanguageModel`, feature-detected |
 | Cloud AI | Claude, Gemini, Groq, Together AI, OpenRouter |
+| Agents | OpenClaw gateway (protocol v4) through `@openclaw/gateway-client`, ECHO as both node and operator |
+| Echo Helper | A Node.js native-messaging host, plus Echo guard (OpenClaw plugin), the email and GitHub apps, and `echo-mcp` (MCP server) |
 | Voice | Web Speech API in a sandboxed extension frame |
 | Testing | Node's built-in test runner with TypeScript module harnesses |
 
@@ -532,6 +658,14 @@ The extracted or `dist/` folder was probably moved. Remove the broken entry from
 │ highlighter · writer        │  └───────────────────────────┘
 │ transcript · page UI        │
 └──────────────────────────────┘
+
+Agent mode and Claude (optional), all on this computer:
+
+ ECHO (service worker) ──WebSocket── OpenClaw gateway ── agents' AI model
+     │  node: agents' browser tools        │  apps: echo-mail, echo-github (MCP)
+     │  operator: runs, approvals          └─ Echo guard: "Allow?" for sends/payments
+     │
+     └──native messaging── Echo Helper ── Unix socket ── echo-mcp ── Claude Desktop / Code
 ```
 
 ### Project structure
@@ -552,12 +686,21 @@ The extracted or `dist/` folder was probably moved. Remove the broken entry from
 │   │   ├── page-watcher.ts          Alarm-driven monitoring
 │   │   ├── knowledge-base.ts        Local page recall
 │   │   ├── chats.ts                 Saved and temporary chats
-│   │   └── tools.ts                 Browser tool dispatch
+│   │   ├── tools.ts                 Browser tool dispatch
+│   │   ├── grounding.ts             Marks facts no tool read
+│   │   ├── claude-bridge.ts         ECHO's tools for Claude (MCP)
+│   │   ├── agents/leases.ts         Which agent (or Claude) holds which tab
+│   │   └── openclaw/                Gateway connection, sessions, agents'
+│   │                                browser tools, app approvals, agent mode
+│   ├── helper/                      Echo Helper, Echo guard, email and
+│   │                                GitHub apps, echo-mcp
 │   ├── content/
 │   │   ├── actions.ts               Indexed DOM and browser actions
 │   │   ├── avatar.tsx               Real-time avatar animation engine
 │   │   ├── ui.tsx                   Floating assistant and command bar
-│   │   ├── recorder.ts              Resilient selector capture/replay
+│   │   ├── command-bar.tsx          The Echo panel
+│   │   ├── snapshot.ts              Page references and change-only views
+│   │   ├── recorder.ts              Watch me: capture, recording bar, replay
 │   │   ├── form-filler.ts           Safe profile-based form filling
 │   │   ├── writer.ts                Selection-bound rewrite flow
 │   │   └── video-transcript.ts      Timed transcript parsing
@@ -566,7 +709,8 @@ The extracted or `dist/` folder was probably moved. Remove the broken entry from
 │   │   └── options.tsx              Complete settings interface
 │   ├── characters/                  Character registry and themes
 │   └── assets/characters/           Layered avatar artwork
-├── tests/extension.test.cjs         Security, routing, workflow and UI logic tests
+├── tests/                           Unit tests (node --test)
+├── tools/e2e/, tools/openclaw/      End-to-end tests in Chrome for Testing
 ├── tools/avatar/                     Avatar asset-generation pipeline
 ├── tools/docs/                       Reproducible screenshot/video harness
 ├── docs/screenshots/                 README screenshots
@@ -580,12 +724,16 @@ The extracted or `dist/` folder was probably moved. Remove the broken entry from
 | `npm install` | Install dependencies |
 | `npm run build` | Build the production extension into `dist/` |
 | `npm test` | Run the automated test suite |
+| `npm run e2e:watch-me` | Watch me end to end in Chrome for Testing |
+| `npm run e2e:claude` | ECHO for Claude end to end, playing Claude over MCP |
+| `npm run openclaw:approvals-e2e` | Apps and approvals with a throwaway gateway and a scripted model |
+| `npm run openclaw:turn-on-e2e` | The Turn on button with a real OpenClaw (restarts ECHO's gateway) |
 | `npm run docs:showcase` | Build the documentation sandbox |
 | `npm run docs:capture` | Rebuild and regenerate screenshots plus avatar video; requires Chrome and FFmpeg |
 
 ### Testing coverage
 
-The committed suite currently exercises 40 behaviors, including:
+The unit suite (127 tests) covers, among others:
 
 - Page-scoped cache isolation.
 - Sensitive-field redaction and typing refusal.
@@ -606,6 +754,14 @@ The committed suite currently exercises 40 behaviors, including:
 - Incognito task confinement.
 - Character/voice matching.
 - On-device AI timeout behavior.
+- The OpenClaw connection, sessions, tool routing, per-agent tool isolation and reconnects.
+- Grounding: page references, stale references, quote checks and unverified claims.
+- Echo Helper: checked setup data, locked-down agents, app credentials kept off command lines.
+- Echo guard's send/pay rule, ECHO's app approvals, and the email and GitHub apps.
+- The Claude bridge, `echo-mcp`, and adding ECHO to Claude.
+- Watch me: never recording ECHO's own controls, and task names that change a task going to an agent.
+
+End-to-end tests in Chrome for Testing are listed in [tools/openclaw/README.md](tools/openclaw/README.md#checks). The ones that need a model use a scripted stand-in, so they spend no quota.
 
 ### Documentation media
 
@@ -629,6 +785,11 @@ Requirements: macOS with Google Chrome at its standard application path and `ffm
 - Browser speech recognition and installed voices vary by operating system.
 - Web search availability depends on the selected provider, model, account, and quota.
 - This repository currently distributes an unpacked extension ZIP rather than a Chrome Web Store release.
+- Agent mode needs macOS or Linux and Node.js, and a one-time command in Terminal (Chrome cannot install programs).
+- Agents' quality and speed depend on the AI behind OpenClaw; free tiers can run out of quota mid-task.
+- Email for agents uses an app password: Google's official Gmail connector cannot send mail and needs your own Google Cloud app.
+- GitHub for agents reads and talks in issues; it cannot push, merge or delete.
+- Claude can use one shared tab (and the tabs it opens from it) at a time.
 
 ---
 
