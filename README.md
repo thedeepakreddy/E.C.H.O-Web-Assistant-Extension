@@ -30,6 +30,20 @@ The unusual part is what happens behind the interface: ECHO tries fast local met
 | **A simpler chat panel** | An **Assign Agent** button, one ⋯ menu for everything else, and a new Echo panel with agent, chat-panel and settings buttons. |
 | **Honest answers** | Agents read pages by reference, prove results before claiming success, and ECHO marks any number or name it could not find on the page. |
 
+## Project status
+
+V3 completes the agent plan ECHO was built toward, in six phases: agents that each hold their own tab (with a built-in brain when OpenClaw is off), the OpenClaw connection, page references and honest answers, apps with Allow before sending, and ECHO as an MCP server for Claude.
+
+| Tested end to end in Chrome | Result |
+| --- | --- |
+| Turn on with a real OpenClaw: helper install, start, approve, **Agents on**, Turn off, Turn on again | 13/13 |
+| Watch me, then an agent finishing a task on a redesigned page (real Gemini model) | 12/12 |
+| An agent's email waits for Allow; Allow sends, Deny doesn't; agents without the app never see it | 13/13 |
+| Claude (over MCP) reads a shared tab and asks before sending | 15/15 |
+| Unit tests | 127 passing |
+
+Not yet tried with real accounts: connecting a real Gmail or GitHub account, and the Claude Desktop and Claude Code apps themselves (the tests use the same protocols). The full list of checks is in [tools/openclaw/README.md](tools/openclaw/README.md#checks).
+
 ---
 
 ## See ECHO in motion
