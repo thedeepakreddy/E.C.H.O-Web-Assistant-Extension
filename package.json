@@ -18,7 +18,9 @@
     "openclaw:harness-e2e": "npm run build && node tools/openclaw/harness-e2e.cjs",
     "openclaw:setup-e2e": "npm run build && node tools/openclaw/setup-e2e.cjs",
     "openclaw:turn-on-e2e": "npm run build && node tools/openclaw/turn-on-e2e.cjs",
-    "openclaw:watch-me-e2e": "npm run build && node tools/e2e/watch-me.cjs --agent"
+    "openclaw:watch-me-e2e": "npm run build && node tools/e2e/watch-me.cjs --agent",
+    "openclaw:approvals-e2e": "npm run build && node tools/openclaw/approvals-e2e.cjs",
+    "openclaw:stale-token-e2e": "node tools/openclaw/stale-token-e2e.cjs"
   },
   "keywords": [],
   "author": "",

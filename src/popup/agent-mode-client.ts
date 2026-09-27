@@ -11,10 +11,10 @@ type GatewayState =
 
 export interface OpenClawStatus {
   enabled: boolean; url: string; hasToken: boolean; node: GatewayState; operator: GatewayState;
-  serverVersion?: string; testedVersion: string; commands: { state: string; requestId?: string }; ready: boolean;
+  serverVersion?: string; testedVersion: string; commands: { state: string; requestId?: string }; ready: boolean; approvals?: boolean;
 }
 
-export interface HelperInfo { helper: number; openclaw: { version: string } | null; running?: boolean; model?: string | null }
+export interface HelperInfo { helper: number; outdated?: boolean; openclaw: { version: string } | null; running?: boolean; model?: string | null }
 
 /** Where agent mode stands, in the words the user sees. */
 export type AgentPhase = 'off' | 'not-running' | 'needs-setup' | 'connecting' | 'approving' | 'ready';
@@ -104,7 +104,7 @@ export function useAgentMode(pollMs = 3000): AgentMode {
 
   // The helper just arrived (its one-time install finished): carry on turning on.
   useEffect(() => {
-    if (installCommand && helper?.openclaw && !busy) turnOn();
+    if (installCommand && helper?.openclaw && !helper.outdated && !busy) turnOn();
   }, [helper, installCommand]);
 
   const turnOn: AgentMode['turnOn'] = async (opts = {}) => {

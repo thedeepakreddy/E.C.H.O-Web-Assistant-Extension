@@ -35,6 +35,9 @@ export const commandFor = (slug: string, tool: ToolName) => `echo.${slug}.${tool
 export function avatarByCharacter(character: string): AvatarAgent | null {
   return AVATAR_AGENTS.find(a => a.character === character) || null;
 }
+export function avatarByAgentId(agentId: string): AvatarAgent | null {
+  return AVATAR_AGENTS.find(a => a.agentId === agentId) || null;
+}
 export function avatarBySlug(slug: string): AvatarAgent | null {
   return AVATAR_AGENTS.find(a => a.slug === slug) || null;
 }

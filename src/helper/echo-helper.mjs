@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const HELPER_VERSION = 1;
+export const HELPER_VERSION = 2;
 const PROFILE = 'echo';
 const PORT = 18790;
 const HOME = os.homedir();
@@ -19,6 +19,10 @@ const STATE_DIR = path.join(HOME, `.openclaw-${PROFILE}`);
 const DENIED = ['exec', 'process', 'write', 'edit', 'apply_patch', 'browser', 'nodes', 'cron', 'canvas'];
 const WORKSPACE_FILES = ['AGENTS.md', 'SOUL.md', 'IDENTITY.md'];
 const UNUSED_FILES = ['BOOTSTRAP.md', 'USER.md', 'HEARTBEAT.md'];
+// Where the helper, Echo guard and the apps live (next to this file once installed).
+const HELPER_DIR = process.env.ECHO_HELPER_HOME || path.dirname(fileURLToPath(import.meta.url));
+const APPS_DIR = path.join(HELPER_DIR, 'apps');
+const GUARD_DIR = path.join(HELPER_DIR, 'echo-guard');
 const AI = {
   google: { model: 'google/gemini-3.8-flash', fallbacks: ['google/gemini-3.1-flash-lite', 'google/gemini-2.5-flash'] },
   anthropic: { model: 'anthropic/claude-sonnet-5', fallbacks: [] },
@@ -56,13 +60,186 @@ export function checkSetup(req) {
   return { token: req.token, deviceId: req.deviceId.toLowerCase(), commands, agents, ai: req.ai };
 }
 
-/** OpenClaw's agent settings, built here so they are always locked down. */
-export function agentEntries(agents) {
+/** OpenClaw's agent settings, built here so they are always locked down. `grants` adds the apps each agent may use. */
+export function agentEntries(agents, grants = {}) {
   return Object.fromEntries(agents.map(a => [a.agentId, {
     identity: { name: 'Echo' },
     skills: [],
-    tools: { allow: a.allow, deny: DENIED, exec: { security: 'deny' }, codeMode: false },
+    tools: { allow: [...a.allow, ...(grants[a.agentId] || [])], deny: DENIED, exec: { security: 'deny' }, codeMode: false },
   }]));
+}
+
+// --- apps agents can use (MCP servers ECHO ships) ------------------------------------
+
+export const APPS = {
+  mail: { server: 'echo-mail', program: 'echo-mail.mjs', file: 'mail.json', env: 'ECHO_MAIL_CONFIG' },
+  github: { server: 'echo-github', program: 'echo-github.mjs', file: 'github.json', env: 'ECHO_GITHUB_CONFIG' },
+};
+export const MAIL_PROVIDERS = {
+  gmail: { imap: { host: 'imap.gmail.com', port: 993, secure: true }, smtp: { host: 'smtp.gmail.com', port: 465, secure: true } },
+  icloud: { imap: { host: 'imap.mail.me.com', port: 993, secure: true }, smtp: { host: 'smtp.mail.me.com', port: 587, secure: false } },
+  yahoo: { imap: { host: 'imap.mail.yahoo.com', port: 993, secure: true }, smtp: { host: 'smtp.mail.yahoo.com', port: 465, secure: true } },
+};
+const EMAIL = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i;
+const HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+const GITHUB_TOKEN = /^(gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,250}$/;
+
+const appsState = async () => { try { return JSON.parse(await fs.readFile(path.join(APPS_DIR, 'state.json'), 'utf8')); } catch { return {}; } };
+async function saveAppsState(state) {
+  await fs.mkdir(APPS_DIR, { recursive: true, mode: 0o700 });
+  await writePrivate(path.join(APPS_DIR, 'state.json'), JSON.stringify(state, null, 2));
+}
+/** A file only this user can read, replaced in one step. */
+async function writePrivate(file, text) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, text, { mode: 0o600 });
+  await fs.rename(tmp, file);
+}
+
+/** Which app tools each agent may use: "echo-mail__*" for every agent the user picked. */
+export function appGrants(state) {
+  const grants = {};
+  for (const [app, info] of Object.entries(state || {})) {
+    if (!APPS[app]) continue;
+    for (const agentId of info?.agents || []) if (AGENT_ID.test(agentId)) (grants[agentId] ||= []).push(`${APPS[app].server}__*`);
+  }
+  return grants;
+}
+
+/** Give each ECHO agent exactly its apps, keeping its browser tools. */
+async function applyGrants(oc, state) {
+  const entries = await runJson(oc, ['config', 'get', 'agents.entries']) || {};
+  const grants = appGrants(state);
+  for (const [agentId, entry] of Object.entries(entries)) {
+    if (!AGENT_ID.test(agentId) || !Array.isArray(entry?.tools?.allow)) continue;
+    const allow = [...entry.tools.allow.filter(t => !String(t).includes('__')), ...(grants[agentId] || [])];
+    await must(oc, ['config', 'set', `agents.entries.${agentId}.tools.allow`, JSON.stringify(allow), '--strict-json'], 'Giving the agents the app');
+  }
+}
+
+async function enableGuard(oc) {
+  check(existsSync(path.join(GUARD_DIR, 'index.mjs')), 'Echo Helper is out of date. Install it again from ECHO\'s settings.');
+  await must(oc, ['config', 'set', 'plugins.load.paths', JSON.stringify([GUARD_DIR]), '--strict-json'], 'Turning on approvals');
+  await must(oc, ['config', 'set', 'plugins.entries.echo-guard', JSON.stringify({ enabled: true }), '--strict-json'], 'Turning on approvals');
+}
+
+const echoAgents = async oc => Object.keys(await runJson(oc, ['config', 'get', 'agents.entries']) || {}).filter(id => AGENT_ID.test(id));
+function checkAgents(list, known) {
+  check(Array.isArray(list) && list.length <= 16 && list.every(a => AGENT_ID.test(String(a))), 'Bad agent list.');
+  return list.filter(a => known.includes(a));
+}
+
+/** What is connected, without any secret. */
+export async function apps() {
+  const state = await appsState();
+  const available = {
+    mail: existsSync(path.join(HELPER_DIR, APPS.mail.program)) && existsSync(path.join(HELPER_DIR, 'node_modules', 'imapflow')),
+    github: existsSync(path.join(HELPER_DIR, APPS.github.program)),
+  };
+  const out = {};
+  for (const app of Object.keys(APPS)) {
+    const info = state[app];
+    out[app] = { available: available[app], connected: !!info && existsSync(path.join(APPS_DIR, APPS[app].file)),
+      ...(info ? { account: info.account || '', agents: info.agents || [] } : {}) };
+  }
+  return out;
+}
+
+/** Run an app's own sign-in check with the credentials just saved. */
+function checkApp(app, credFile) {
+  return new Promise(resolve => execFile(process.execPath, [path.join(HELPER_DIR, APPS[app].program), '--check'],
+    { timeout: 45_000, env: { ...process.env, [APPS[app].env]: credFile } }, (error, stdout) => {
+      try { resolve(JSON.parse(String(stdout).trim().split('\n').pop())); } catch { resolve({ ok: false, error: error?.killed ? 'The sign-in took too long.' : 'The app did not start.' }); }
+    }));
+}
+
+/**
+ * Connect an app for the agents: save the user's credentials where only they
+ * can read them, sign in once to check, and add the app to OpenClaw. The
+ * credentials never go into OpenClaw's settings, and are never echoed back.
+ */
+export async function connectApp(req, origin) {
+  const oc = findOpenClaw();
+  check(oc, 'OpenClaw is not installed.');
+  check(ORIGIN.test(origin || ''), 'Unknown caller.');
+  const app = String(req?.app || '');
+  check(APPS[app], 'Unknown app.');
+  check(existsSync(path.join(HELPER_DIR, APPS[app].program)), 'Echo Helper is out of date. Install it again from ECHO\'s settings.');
+  const known = await echoAgents(oc);
+  check(known.length, 'Turn agent mode on first.');
+  const agents = req.agents === undefined ? known : checkAgents(req.agents, known);
+  let cred;
+  let account;
+  if (app === 'mail') {
+    const address = String(req.address || '').trim();
+    check(EMAIL.test(address) && address.length <= 200, 'That email address does not look right.');
+    const provider = String(req.provider || '');
+    let servers = MAIL_PROVIDERS[provider];
+    if (provider === 'custom') {
+      const port = n => Number.isInteger(Number(n)) && Number(n) > 0 && Number(n) < 65536 ? Number(n) : 0;
+      check(HOST.test(String(req.imapHost || '')) && HOST.test(String(req.smtpHost || '')), 'Check the mail server names.');
+      servers = { imap: { host: req.imapHost, port: port(req.imapPort) || 993, secure: true },
+        smtp: { host: req.smtpHost, port: port(req.smtpPort) || 465, secure: (port(req.smtpPort) || 465) === 465 } };
+    }
+    check(servers, 'Choose your email provider.');
+    // App passwords are shown in groups ("abcd efgh ijkl mnop"); the spaces are not part of it.
+    const password = String(req.password || '').replace(/\s+/g, '');
+    check(password.length >= 8 && password.length <= 128, 'That app password does not look right.');
+    cred = { address, password, provider, ...servers };
+    account = address;
+  } else {
+    if (req.source === 'gh') cred = { source: 'gh' };
+    else {
+      const token = String(req.token || '').trim();
+      check(GITHUB_TOKEN.test(token), 'That GitHub token does not look right.');
+      cred = { token };
+    }
+  }
+  await fs.mkdir(APPS_DIR, { recursive: true, mode: 0o700 });
+  const credFile = path.join(APPS_DIR, APPS[app].file);
+  await writePrivate(credFile, JSON.stringify(cred));
+  const checked = await checkApp(app, credFile);
+  if (!checked?.ok) {
+    await fs.rm(credFile, { force: true });
+    throw new Error(checked?.error || 'Could not sign in.');
+  }
+  if (app === 'github') account = checked.login || 'GitHub';
+  await enableGuard(oc);
+  const server = { command: process.execPath, args: [path.join(HELPER_DIR, APPS[app].program)], env: { [APPS[app].env]: credFile } };
+  await must(oc, ['config', 'set', `mcp.servers.${APPS[app].server}`, JSON.stringify(server), '--strict-json'], 'Adding the app');
+  const state = await appsState();
+  state[app] = { agents, account };
+  await saveAppsState(state);
+  await applyGrants(oc, state);
+  return { ok: true, account, agents };
+}
+
+export async function disconnectApp(req) {
+  const oc = findOpenClaw();
+  check(oc, 'OpenClaw is not installed.');
+  const app = String(req?.app || '');
+  check(APPS[app], 'Unknown app.');
+  await run(oc, ['config', 'unset', `mcp.servers.${APPS[app].server}`]);
+  await fs.rm(path.join(APPS_DIR, APPS[app].file), { force: true });
+  const state = await appsState();
+  delete state[app];
+  await saveAppsState(state);
+  await applyGrants(oc, state);
+  return { ok: true };
+}
+
+/** Choose which agents may use an app. */
+export async function setAppAgents(req) {
+  const oc = findOpenClaw();
+  check(oc, 'OpenClaw is not installed.');
+  const app = String(req?.app || '');
+  check(APPS[app], 'Unknown app.');
+  const state = await appsState();
+  check(state[app], 'That app is not connected.');
+  state[app].agents = checkAgents(req.agents, await echoAgents(oc));
+  await saveAppsState(state);
+  await applyGrants(oc, state);
+  return { ok: true, agents: state[app].agents };
 }
 
 // --- running OpenClaw --------------------------------------------------------------
@@ -132,7 +309,9 @@ export async function turnOn(req, origin, progress) {
     ['gateway.nodes.commands.allow', JSON.stringify(s.commands), true],
   ];
   for (const [key, value, strict] of sets) await must(oc, ['config', 'set', key, value, ...(strict ? ['--strict-json'] : [])], `Setting ${key}`);
-  await must(oc, ['config', 'set', 'agents.entries', JSON.stringify(agentEntries(s.agents)), '--strict-json', '--merge'], 'Setting up the agents');
+  await must(oc, ['config', 'set', 'agents.entries', JSON.stringify(agentEntries(s.agents, appGrants(await appsState()))), '--strict-json', '--merge'], 'Setting up the agents');
+  // Echo guard asks in ECHO before an agent sends or pays through an app.
+  if (existsSync(path.join(GUARD_DIR, 'index.mjs'))) await enableGuard(oc);
   await must(oc, ['config', 'set', 'gateway.auth.token', s.token], 'Setting the connection key');
   for (const a of s.agents) {
     const dir = path.join(STATE_DIR, `workspace-${a.agentId}`);
@@ -200,6 +379,10 @@ async function handle(message, origin) {
     if (message?.cmd === 'hello') result = await hello();
     else if (message?.cmd === 'turn-on') result = await turnOn(message, origin, (step, extra = {}) => send({ id, progress: step, ...extra }));
     else if (message?.cmd === 'turn-off') result = await turnOff();
+    else if (message?.cmd === 'apps') result = await apps();
+    else if (message?.cmd === 'connect-app') result = await connectApp(message, origin);
+    else if (message?.cmd === 'disconnect-app') { check(ORIGIN.test(origin || ''), 'Unknown caller.'); result = await disconnectApp(message); }
+    else if (message?.cmd === 'app-agents') { check(ORIGIN.test(origin || ''), 'Unknown caller.'); result = await setAppAgents(message); }
     else throw new Error('Unknown request.');
     send({ id, result });
   } catch (error) {

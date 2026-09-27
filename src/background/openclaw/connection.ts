@@ -171,8 +171,10 @@ export function createGatewayConnection(opts: GatewayConnectionOptions): Gateway
     onConnectFailure: async (error, context) => {
       const code = readConnectErrorDetailCode(error.details);
       if (code === ConnectErrorDetailCodes.AUTH_DEVICE_TOKEN_MISMATCH && context.plan.auth.selectedAuth.usingStoredDeviceToken) {
-        // Revoked or rotated elsewhere: forget it so the next try re-pairs.
+        // Revoked or rotated elsewhere: forget it and try again at once, with the
+        // gateway's key if ECHO has one (Turn on gives it one) or to re-pair.
         await lifecycle.clearStoredToken(context.plan.auth);
+        return { closeCode: CONNECT_FAILED_CLOSE, closeReason: 'device token reset', reconnectDelayMs: 1_000 };
       }
       if (code === ConnectErrorDetailCodes.PAIRING_REQUIRED) {
         const pairing = readPairingConnectErrorDetails(error.details);

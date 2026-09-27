@@ -4,10 +4,23 @@
 // helper to do everything else: no terminal, no copied tokens.
 
 import helperSource from '../../helper/echo-helper.mjs?raw';
+import guardSource from '../../helper/echo-guard.mjs?raw';
+import mailSource from '../../helper/echo-mail.mjs?raw';
+import githubSource from '../../helper/echo-github.mjs?raw';
 import { PROFILE, TESTED_OPENCLAW, setupCommand } from './setup-script';
 
 /** Chrome's name for Echo Helper (native messaging). */
 export const HELPER_HOST = 'com.echo.helper';
+/** The helper this ECHO needs; an older one is installed again. */
+export const HELPER_VERSION = 2;
+// The email app's two libraries (IMAP and SMTP), pinned.
+const MAIL_LIBRARIES = ['imapflow@2.0.7', 'nodemailer@10.0.10'];
+
+const GUARD_MANIFEST = JSON.stringify({
+  id: 'echo-guard', name: 'Echo guard', description: 'Asks the user in ECHO before an ECHO agent sends or pays through a connected app.',
+  categories: ['other'], activation: { onStartup: true }, configSchema: { type: 'object', additionalProperties: false },
+});
+const GUARD_PACKAGE = JSON.stringify({ name: 'echo-guard', version: '1.0.0', type: 'module', openclaw: { extensions: ['./index.mjs'] } });
 
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
@@ -57,6 +70,22 @@ printf '%s' ${q(helperSource || '')} > "$DIR/echo-helper.mjs"
   echo "exec \\"$NODE\\" \\"$DIR/echo-helper.mjs\\" \\"\\$@\\""
 } > "$DIR/echo-helper"
 chmod 755 "$DIR/echo-helper"
+
+# Echo guard (asks in ECHO before an agent sends or pays in an app) and the apps.
+mkdir -p "$DIR/echo-guard" "$DIR/apps"
+chmod 700 "$DIR/apps"
+printf '%s' ${q(guardSource || '')} > "$DIR/echo-guard/index.mjs"
+printf '%s' ${q(GUARD_MANIFEST)} > "$DIR/echo-guard/openclaw.plugin.json"
+printf '%s' ${q(GUARD_PACKAGE)} > "$DIR/echo-guard/package.json"
+printf '%s' ${q(mailSource || '')} > "$DIR/echo-mail.mjs"
+printf '%s' ${q(githubSource || '')} > "$DIR/echo-github.mjs"
+[ -f "$DIR/package.json" ] || printf '%s' '{"name":"echo-helper","private":true,"type":"module"}' > "$DIR/package.json"
+if command -v npm >/dev/null; then
+  step "Installing the email app's libraries"
+  (cd "$DIR" && npm install --no-audit --no-fund --save-exact --omit=dev ${MAIL_LIBRARIES.join(' ')} >/dev/null 2>&1) \
+    || echo "Could not install them now; email for agents needs this command again later."
+fi
+
 MANIFEST=${q(manifest)}
 MANIFEST="\${MANIFEST/__PATH__/$DIR/echo-helper}"
 installed=0

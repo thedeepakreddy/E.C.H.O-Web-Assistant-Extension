@@ -22,8 +22,17 @@ const pairedDevices = () => { try { return (ocJson('devices', 'list').paired || 
  */
 function keepGatewayTidy() {
   const known = new Set(pairedDevices());
+  // Turn on points the gateway at the test's (temporary) Echo guard; put back what was there.
+  const KEYS = ['plugins.load.paths', 'plugins.entries.echo-guard'];
+  // An unset key reads back as {"ok":false,...}: remember it as unset.
+  const read = k => { try { const v = JSON.parse(oc('config', 'get', k, '--json')); return v && v.ok === false && v.error ? null : JSON.stringify(v); } catch { return null; } };
+  const saved = Object.fromEntries(KEYS.map(k => [k, read(k)]));
   return () => {
     for (const id of pairedDevices()) if (!known.has(id)) tryOc('devices', 'remove', id);
+    for (const k of KEYS) {
+      if (saved[k]) tryOc('config', 'set', k, saved[k], '--strict-json');
+      else tryOc('config', 'unset', k);
+    }
     if (!tryOc('health')) tryOc('daemon', 'install', '--force');
   };
 }
