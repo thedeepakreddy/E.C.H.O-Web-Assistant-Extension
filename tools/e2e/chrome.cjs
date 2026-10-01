@@ -12,8 +12,36 @@ const { extensionId } = require('../openclaw/extension-id.cjs');
 const root = path.resolve(__dirname, '../..');
 const dist = path.join(root, 'dist');
 const delay = ms => new Promise(r => setTimeout(r, ms));
-const DEFAULT_CHROME = path.join(os.homedir(),
-  'Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing');
+
+function defaultChrome() {
+  if (process.env.ECHO_CHROME_BIN && fs.existsSync(process.env.ECHO_CHROME_BIN)) return process.env.ECHO_CHROME_BIN;
+  try {
+    const installed = require('playwright').chromium.executablePath();
+    if (installed && fs.existsSync(installed)) return installed;
+  } catch { /* Playwright is optional outside the development checkout. */ }
+  for (const cache of [path.join(os.homedir(), 'Library/Caches/ms-playwright'), path.join(os.homedir(), '.cache/ms-playwright')]) {
+    if (!fs.existsSync(cache)) continue;
+    const builds = fs.readdirSync(cache).filter(name => /^chromium-/.test(name)).sort().reverse();
+    for (const build of builds) {
+      const base = path.join(cache, build);
+      const candidates = [
+        path.join(base, 'chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
+        path.join(base, 'chrome-mac/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
+        path.join(base, 'chrome-linux/chrome'),
+      ];
+      const cached = candidates.find(fs.existsSync);
+      if (cached) return cached;
+    }
+  }
+  const common = [
+    '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome',
+    '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  ];
+  const found = common.find(fs.existsSync);
+  if (found) return found;
+  throw new Error('Chromium was not found. Run "npx playwright install chromium" or set ECHO_CHROME_BIN.');
+}
 
 class CDP {
   constructor(wsUrl) {
@@ -63,7 +91,8 @@ async function findTarget(cdp, predicate, timeoutMs = 10_000) {
  * Start Chrome for Testing with ECHO loaded. Returns the CDP client, the
  * extension id, its service-worker target, the profile folder, and a cleanup function.
  */
-async function launchEcho({ chrome = DEFAULT_CHROME, urls = ['about:blank'], extensionDir = dist } = {}) {
+async function launchEcho({ chrome, urls = ['about:blank'], extensionDir = dist, env = process.env } = {}) {
+  chrome ||= defaultChrome();
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-e2e-'));
   const port = 9300 + Math.floor(Math.random() * 500);
   const proc = spawn(chrome, [
@@ -71,7 +100,7 @@ async function launchEcho({ chrome = DEFAULT_CHROME, urls = ['about:blank'], ext
     `--load-extension=${extensionDir}`, `--disable-extensions-except=${extensionDir}`,
     // Headless Chrome takes one start URL; the rest open over DevTools below.
     '--no-first-run', '--no-default-browser-check', urls[0] || 'about:blank',
-  ], { stdio: 'ignore' });
+  ], { stdio: 'ignore', env });
   const cleanup = () => {
     try { proc.kill(); } catch { /* already gone */ }
     try { fs.rmSync(userDir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* Chrome still flushing; temp dir */ }
@@ -95,4 +124,4 @@ async function launchEcho({ chrome = DEFAULT_CHROME, urls = ['about:blank'], ext
   return { cdp, extensionId: id, worker, browser: version.Browser, userDir, cleanup };
 }
 
-module.exports = { CDP, evaluate, findTarget, launchEcho, delay, root, dist };
+module.exports = { CDP, evaluate, findTarget, launchEcho, delay, root, dist, defaultChrome };

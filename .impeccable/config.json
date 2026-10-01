@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "codex-grid-background",
+        "value": "*",
+        "files": [
+          "src/theme/glass.css"
+        ],
+        "createdAt": "2026-09-30T22:41:56.033Z",
+        "reason": "Intentional faint HUD grid documented in the incumbent ECHO visual system; preserved during narrow motion polish."
+      }
+    ]
+  }
+}

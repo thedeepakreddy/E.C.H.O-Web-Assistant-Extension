@@ -14,7 +14,7 @@ With **agent mode** on, ECHO's characters become agents you assign to tabs: each
 
 The unusual part is what happens behind the interface: ECHO tries fast local methods before contacting a cloud model. Simple requests stay quick and private, cached answers are reused, supported Chrome installations can use on-device AI, and cloud models are reserved for work that genuinely needs them.
 
-> [Download the ready-to-install ECHO V3 ZIP](package%20for%20sharing/Echo_Web_Assistant_v3.zip) · [Build from source](#option-b--build-from-source) · [What's new in V3](#whats-new-in-v3) · [See everything ECHO can do](#complete-feature-guide)
+> [Download the verified ECHO v3.0.0 ZIP](package%20for%20sharing/Echo_Online_v3.0.0.zip) · [SHA-256 checksum](package%20for%20sharing/Echo_Online_v3.0.0.zip.sha256) · [Build from source](#option-b--build-from-source) · [What's new in V3](#whats-new-in-v3) · [See everything ECHO can do](#complete-feature-guide)
 
 ---
 
@@ -96,7 +96,7 @@ Select text in a field and use ECHO Writer to rewrite it. Review the result, cop
 
 This is the easiest route for non-technical users.
 
-1. [Download `Echo_Web_Assistant_v3.zip`](package%20for%20sharing/Echo_Web_Assistant_v3.zip).
+1. [Download `Echo_Online_v3.0.0.zip`](package%20for%20sharing/Echo_Online_v3.0.0.zip) and optionally verify it with the adjacent [SHA-256 checksum](package%20for%20sharing/Echo_Online_v3.0.0.zip.sha256).
 2. Unzip it. The extracted folder contains the production extension files.
 3. Open Chrome and enter `chrome://extensions` in the address bar.
 4. Turn on **Developer mode** in the upper-right corner.
@@ -533,6 +533,8 @@ Agents follow the same idea: local skills (stop, workflows, extractors) answer f
 
 ## Privacy and safety model
 
+The complete user-facing disclosure is in [PRIVACY.md](PRIVACY.md). Cloud AI is disabled on first install until the user accepts that disclosure in Settings.
+
 ECHO can operate websites, so its boundaries are designed to be visible and conservative.
 
 ### Local by default
@@ -544,7 +546,7 @@ ECHO can operate websites, so its boundaries are designed to be visible and cons
 
 ### Approval before consequential actions
 
-ECHO asks before actions that can pay, send an email, or send a message, and only then; everything else runs and is written to the action log. The same rule covers ECHO's agents, the apps they use (through Echo guard, a small OpenClaw plugin), and Claude. Approval is tied to the originating tab so another page cannot approve it, and a denied send is not asked about again in the same task.
+ECHO asks immediately before actions that can pay, send or publish, delete data, change an account or its security, or grant access. Everything else runs and is written to the action log. The same rule covers ECHO's agents, the apps they use (through Echo guard, a small OpenClaw plugin), and Claude. Approval is tied to the originating tab so another page cannot approve it, and a denied action is not asked about again in the same task.
 
 ### Agents and helpers stay in bounds
 
@@ -572,7 +574,7 @@ ECHO asks before actions that can pay, send an email, or send a message, and onl
 | `alarms` / `notifications` | Check page watchers and notify you when conditions match |
 | `downloads` | Export user-requested data and highlights |
 | `contextMenus` | Offer ECHO actions on selected page text |
-| `<all_urls>` host access | Run the assistant on the sites where you explicitly invoke it |
+| HTTP/HTTPS host access | Run the assistant on websites; the lightweight page-tools bundle loads first and the visual UI loads only when invoked |
 | `nativeMessaging` | Talk to Echo Helper, which turns agent mode on and off, connects apps, and lets Claude reach ECHO |
 
 ---
@@ -582,7 +584,7 @@ ECHO asks before actions that can pay, send an email, or send a message, and onl
 ### ECHO does not appear on a page
 
 1. Reload the page after installing or rebuilding the extension.
-2. Press `Ctrl/Cmd + Shift + E`.
+2. Quickly tap `Option` on macOS or `Alt` on Windows to wake ECHO and start listening. Option/Alt key combinations are ignored.
 3. Confirm the extension is enabled at `chrome://extensions`.
 4. Chrome does not allow extensions to run on some internal pages such as `chrome://settings`.
 
@@ -737,7 +739,10 @@ Agent mode and Claude (optional), all on this computer:
 | --- | --- |
 | `npm install` | Install dependencies |
 | `npm run build` | Build the production extension into `dist/` |
+| `npm run typecheck` | Check all TypeScript without emitting files |
 | `npm test` | Run the automated test suite |
+| `npm run e2e:smoke` | Load the built extension in real Chromium and exercise tabs, tools, isolation, and the lazy UI |
+| `npm run release:package` | Build, validate, and create a checksummed installable ZIP |
 | `npm run e2e:watch-me` | Watch me end to end in Chrome for Testing |
 | `npm run e2e:claude` | ECHO for Claude end to end, playing Claude over MCP |
 | `npm run openclaw:approvals-e2e` | Apps and approvals with a throwaway gateway and a scripted model |

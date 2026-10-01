@@ -151,23 +151,29 @@ export async function logAction(action: string, detail: string, status: 'approve
 
 // ---- which actions need the user's approval -------------------------------
 
-export type SensitiveKind = 'payment' | 'message';
+export type SensitiveKind = 'payment' | 'message' | 'destructive' | 'account' | 'permission';
 
 const PAY_LABEL = /\b(pay|payment|pay now|buy|buy now|purchase|check ?out|place (your )?order|order now|complete (your )?(order|purchase|payment)|confirm (and )?(pay|order|purchase|payment|booking)|book (now|and pay)|subscribe|start (my |your )?(trial|subscription)|upgrade|renew|donate|send money|transfer|top ?up|recharge|add funds|withdraw)\b/i;
 const SEND_LABEL = /\b(send|send (now|email|mail|message)|reply( all)?|forward|post|publish|tweet|retweet|repost|comment|submit (comment|review|reply|post)|share (post|now))\b/i;
+const DESTRUCTIVE_LABEL = /\b(delete|erase|wipe|destroy|remove permanently|empty trash|clear all|drop|purge)\b|\b(cancel|terminate)\s+(subscription|membership|account|service|plan|order|booking|reservation)\b/i;
+const ACCOUNT_LABEL = /\b(close|deactivate|disable|suspend)\s+(my\s+|your\s+|this\s+)?account\b|\b(change|reset)\s+(password|email|phone|security)\b|\b(disable|remove|reset)\s+(2fa|two[- ]factor|mfa|passkey|recovery)\b/i;
+const PERMISSION_LABEL = /\b(grant|allow|approve|give|share)\s+(access|permission|permissions|control)\b|\b(invite|add)\s+(member|user|admin|administrator|collaborator)\b|\b(make|promote)\s+.*\b(admin|administrator|owner)\b|\b(connect|link)\s+(account|wallet)\b/i;
 // "Checkout", "Proceed to checkout": controls that open the checkout page.
 const CHECKOUT_PAGE_LINK = /^(?:(?:proceed|go|continue) to )?(?:secure )?check ?out$/i;
 /** The name inside a control label like `<button> "Proceed to checkout"`. */
 const controlName = (label: string) => (label.match(/^<[^>]*>\s*"(.*)"$/)?.[1] ?? label).trim();
 const CONFIRM_LABEL = /\b(confirm|continue|submit|next|proceed|complete|finish|done|ok)\b/i;
 const PAYMENT_PAGE = /(checkout|payment|\/pay\b|\/pay\/|billing|purchase|\/buy\/|order-?review|place-?order)/i;
+const HIGH_IMPACT_PAGE = /(account\/(delete|close|security)|settings\/(security|permissions|members|billing)|admin|access-control|subscriptions?\/cancel|cancel-subscription)/i;
 const PAYMENT_HOST = /(^|\.)(paypal\.com|stripe\.com|razorpay\.com|paytm\.com|phonepe\.com|pay\.google\.com|payments\.google\.com|venmo\.com|wise\.com|revolut\.com|cash\.app|squareup\.com|checkout\.shopify\.com)$/i;
 // Sites where pressing Enter (or submitting typed text) sends a message.
 const MESSAGE_HOST = /(^|\.)(mail\.google\.com|outlook\.(live|office|office365)\.com|mail\.yahoo\.com|mail\.proton\.me|icloud\.com|web\.whatsapp\.com|messenger\.com|facebook\.com|slack\.com|discord\.com|web\.telegram\.org|teams\.microsoft\.com|teams\.live\.com|linkedin\.com|x\.com|twitter\.com|instagram\.com|reddit\.com|chat\.google\.com|signal\.org)$/i;
 
 /**
- * Does this browser action pay for something or send a message? Those need
- * the user's approval; everything else runs straight away.
+ * Does this browser action create an external side effect that a user should
+ * review? Read-only navigation and ordinary editing run immediately; money,
+ * messages, destructive changes, account/security changes and access grants
+ * require a one-time approval bound to the inspected control.
  */
 export function sensitiveAction(a: { tool: string; label?: string; url?: string; key?: string; submit?: boolean }): SensitiveKind | null {
   let host = '';
@@ -175,6 +181,7 @@ export function sensitiveAction(a: { tool: string; label?: string; url?: string;
   try { const u = new URL(a.url || ''); host = u.hostname; path = u.pathname + u.search; } catch { /* no page */ }
   const label = (a.label || '').slice(0, 200);
   const onPaymentPage = PAYMENT_HOST.test(host) || PAYMENT_PAGE.test(path);
+  const onHighImpactPage = HIGH_IMPACT_PAGE.test(path);
 
   if (a.tool === 'click_element' || a.tool === 'click_selector') {
     // Going to the checkout page is not paying; the payment click there still asks.
@@ -182,6 +189,10 @@ export function sensitiveAction(a: { tool: string; label?: string; url?: string;
     if (PAY_LABEL.test(label)) return 'payment';
     if (onPaymentPage && CONFIRM_LABEL.test(label)) return 'payment';
     if (SEND_LABEL.test(label)) return 'message';
+    if (DESTRUCTIVE_LABEL.test(label)) return 'destructive';
+    if (ACCOUNT_LABEL.test(label)) return 'account';
+    if (PERMISSION_LABEL.test(label)) return 'permission';
+    if (onHighImpactPage && CONFIRM_LABEL.test(label)) return 'account';
     return null;
   }
   // Enter or a typed-and-submitted field sends in mail and chat apps.
@@ -189,6 +200,7 @@ export function sensitiveAction(a: { tool: string; label?: string; url?: string;
   if (submits) {
     if (MESSAGE_HOST.test(host)) return 'message';
     if (onPaymentPage) return 'payment';
+    if (onHighImpactPage) return 'account';
   }
   return null;
 }

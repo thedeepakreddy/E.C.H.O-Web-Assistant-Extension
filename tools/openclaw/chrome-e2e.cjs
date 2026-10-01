@@ -31,9 +31,8 @@ const agentRun = process.argv.includes('--agent-run');
 // One session per run, the way each tab assignment gets its own lease session.
 const runTag = crypto.randomBytes(3).toString('hex');
 let pairedNodeId = null;
-const openclaw = arg('openclaw', path.join(os.homedir(), '.npm-global/bin/openclaw'));
-const chromeBin = arg('chrome', path.join(os.homedir(),
-  'Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'));
+const openclaw = require('./bin.cjs').findOpenClaw(arg('openclaw', null));
+const chromeBin = arg('chrome', null) || require('../e2e/chrome.cjs').defaultChrome();
 
 require.extensions['.ts'] = (module, filename) => {
   module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {

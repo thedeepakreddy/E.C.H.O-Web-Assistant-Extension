@@ -59,7 +59,7 @@ test('mail: send and reply go from the user\'s address, with the conversation ke
   const mail = createMailTools({ config, connect: box.connect, transport: box.transport });
   assert.match(await mail.send_email({ to: ['bob@example.com'], subject: 'Hi', body: 'Hello Bob' }), /^Sent to bob@example\.com/);
   assert.deepEqual({ ...box.sent[0] }, { from: 'me@example.com', to: ['bob@example.com'], cc: undefined, subject: 'Hi', text: 'Hello Bob' });
-  assert.match(await mail.reply_email({ id: '7', body: 'Yes!', reply_all: true }), /^Replied to ada@example\.com, bob@example\.com/);
+  assert.match(await mail.reply_email({ id: '7', body: 'Yes!', reply_all: true, to: ['ada@example.com'], cc: ['bob@example.com'] }), /^Replied to ada@example\.com, bob@example\.com/);
   assert.equal(box.sent[1].subject, 'Re: Lunch');
   assert.equal(box.sent[1].inReplyTo, '<m7@example.com>');
   assert.deepEqual(box.sent[1].cc, ['bob@example.com'], 'reply-all leaves the user out');
@@ -73,6 +73,7 @@ test('mail: bad requests are refused before anything is sent', async () => {
   await assert.rejects(mail.send_email({ to: [], subject: 'x', body: 'y' }), /who to send it to/);
   await assert.rejects(mail.send_email({ to: ['bob@example.com'], subject: 'x', body: '  ' }), /no text/);
   await assert.rejects(mail.read_email({ id: '../../etc' }), /id must be/);
+  await assert.rejects(mail.reply_email({ id: '7', body: 'Yes!', reply_all: true, to: ['ada@example.com'], cc: [] }), /recipients changed/);
   assert.equal(box.sent.length, 0);
 });
 

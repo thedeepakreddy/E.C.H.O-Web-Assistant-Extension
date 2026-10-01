@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './options.css';
 import { useAppearance } from '../theme/page-theme';
 import { CHARACTERS, REACTOR, REACTOR_THEME, characterById, characterAsset, resolveAppearance } from '../characters';
-import { DEFAULT_CLAUDE_MODEL, DEFAULT_GEMINI_MODEL } from '../background/auth';
+import { DEFAULT_CLAUDE_MODEL, DEFAULT_GEMINI_MODEL, PRIVACY_CONSENT_VERSION } from '../background/auth';
 import { sanitizeProfile, TONES, Tone } from '../background/personalization';
 import { AgentSetup, useAgentMode, PHASE_TEXT } from './agent-setup';
 import { AppsSetup } from './apps-setup';
@@ -53,7 +53,8 @@ function Options() {
   const [showMemoryValues, setShowMemoryValues] = useState(false);
   const [doctor, setDoctor] = useState<any>(null);
   const [checking, setChecking] = useState(false);
-  const [passiveSuggest, setPassiveSuggest] = useState(true);
+  const [passiveSuggest, setPassiveSuggest] = useState(false);
+  const [privacyConsent, setPrivacyConsent] = useState(false);
   const [report, setReport] = useState('');
   // Personalization & memories
   const [profileName, setProfileName] = useState('');
@@ -73,7 +74,7 @@ function Options() {
       'provider', 'anthropicApiKey', 'geminiApiKey',
       'togetherApiKey', 'openrouterApiKey', 'groqApiKey',
       'togetherModel', 'openrouterModel', 'groqModel', 'anthropicModel', 'geminiModel', 'echo_handsfree', 'echo_speech_language', 'echo_avatar',
-      'echo_profile', 'echo_memory_enabled'
+      'echo_profile', 'echo_memory_enabled', 'echo_privacy_consent'
     ], (result) => {
       const profile = sanitizeProfile(result.echo_profile || {});
       setProfileName(profile.name);
@@ -81,6 +82,7 @@ function Options() {
       setProfileTone(profile.tone);
       setProfileInstructions(profile.instructions);
       setMemoryEnabled(result.echo_memory_enabled !== false);
+      setPrivacyConsent((result.echo_privacy_consent as { version?: number } | undefined)?.version === PRIVACY_CONSENT_VERSION);
       if (result.provider) setProvider(result.provider as Provider);
       if (result.echo_handsfree) setHandsfree(result.echo_handsfree as boolean);
       setAvatar(resolveAppearance(result.echo_avatar));
@@ -105,7 +107,7 @@ function Options() {
       setUseLocalLlm(s.useLocalLlm !== false);
       setAutoIndex(s.autoIndex === true);
       setAllowedDomains(Array.isArray(s.allowedDomains) ? s.allowedDomains : []);
-      setPassiveSuggest(s.passiveSuggest !== false);
+      setPassiveSuggest(s.passiveSuggest === true);
       setWebSearch(s.webSearch === 'off' ? 'off' : 'auto');
     });
     refreshSkills();
@@ -238,12 +240,17 @@ function Options() {
       echo_profile: sanitizeProfile({ name: profileName, about: profileAbout, tone: profileTone, instructions: profileInstructions }),
       echo_memory_enabled: memoryEnabled,
     });
+    if (privacyConsent) {
+      await chrome.storage.local.set({ echo_privacy_consent: { version: PRIVACY_CONSENT_VERSION, acceptedAt: Date.now() } });
+    } else {
+      await chrome.storage.local.remove('echo_privacy_consent');
+    }
     // Patch, not overwrite: the site list is edited live (here and in the side
     // panel), so saving must not write back a stale copy of it.
     const r: any = await chrome.runtime.sendMessage({ type: 'ECHO_SET_SETTINGS',
       patch: { localFirst, useCache, useLocalLlm, autoIndex, passiveSuggest, webSearch } });
     if (!r?.success) throw new Error(r?.error || 'settings not saved');
-    setStatus('Saved');
+    setStatus(privacyConsent ? 'Saved' : 'Saved. Cloud AI remains off until you accept the privacy disclosure.');
     setTimeout(() => setStatus(''), 2000);
     } catch (error: any) { setStatus(`Save failed: ${error?.message || 'storage unavailable'}`); }
   };
@@ -289,6 +296,17 @@ function Options() {
             </button>
           ))}
         </div>
+      </Group>
+
+      <Group title="Privacy & cloud consent" footer={<>
+        Read the full <a href="privacy.html" target="_blank">ECHO Privacy Notice</a>. You can withdraw consent at any time by turning this off and saving.
+      </>}>
+        <div className="row stacked disclosure">
+          <p>When ECHO cannot answer locally, it sends your request and only the relevant page text, tab details, or tool results needed to the AI provider you select. That provider processes the data under its own policy.</p>
+          <p>ECHO has no developer analytics or advertising. API keys are stored in Chrome's local extension storage, which is not an encrypted password vault. Remembering pages is separately opt-in by site.</p>
+        </div>
+        <Toggle id="privacy-consent" checked={privacyConsent} onChange={setPrivacyConsent}
+          label="Allow cloud AI requests" hint="I understand what can be sent and choose to enable cloud processing." />
       </Group>
 
       <Group title="AI Provider" footer={providerHelp}>
@@ -514,7 +532,7 @@ function Options() {
       </Group>
 
       <Group title="Shortcuts">
-        <Row label="Wake ECHO" hint="Or press ⌘⇧E on any webpage.">
+        <Row label="Wake and listen" hint="Quickly tap Option on Mac or Alt on Windows. Key combinations are ignored.">
           <button className="secondary" onClick={() => {
             // Route through the background service worker so it flips the global
             // wake state and broadcasts to the active tab's content script.

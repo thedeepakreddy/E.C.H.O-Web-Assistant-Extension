@@ -22,10 +22,18 @@ const API = process.env.ECHO_GITHUB_API_URL || 'https://api.github.com';
 const TOOLSETS = 'context,repos,issues,pull_requests,users';
 
 // What agents may do: read, and talk in issues. Everything else is left out.
-const WRITE_ALLOWED = new Set(['create_issue', 'add_issue_comment', 'update_issue', 'issue_write', 'add_comment_to_pending_review']);
+const WRITE_ALLOWED = new Set(['create_issue', 'add_issue_comment', 'issue_write', 'add_comment_to_pending_review']);
 export function allowedTool(name) {
   const n = String(name || '');
   return /^(get|list|search)_/.test(n) || n === 'issue_read' || n === 'pull_request_read' || WRITE_ALLOWED.has(n);
+}
+
+/** Generic remote tools expose many methods; permit only posting, never editing/closing/deleting. */
+export function allowedToolCall(name, args = {}) {
+  if (!allowedTool(name)) return false;
+  if (name !== 'issue_write') return true;
+  const method = String(args?.method ?? args?.action ?? args?.operation ?? '').toLowerCase();
+  return /^(create|add|submit|post|reply|comment)$/.test(method);
 }
 
 const findGh = () => ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh', ...String(process.env.PATH || '').split(':').map(d => path.join(d, 'gh'))]
@@ -109,7 +117,7 @@ export function createBridge(remote) {
       }
       if (msg.method === 'tools/call') {
         const name = msg.params?.name;
-        if (!allowedTool(name)) return { result: { content: [{ type: 'text', text: `${name} is not available to ECHO's agents.` }], isError: true } };
+        if (!allowedToolCall(name, msg.params?.arguments)) return { result: { content: [{ type: 'text', text: `${name} is not available to ECHO's agents.` }], isError: true } };
         await ensureSession();
         const r = await remote.post({ jsonrpc: '2.0', id: msg.id, method: 'tools/call', params: msg.params });
         return r?.error ? { error: r.error } : { result: r?.result };

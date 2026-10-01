@@ -12,12 +12,18 @@ export interface AuthConfig {
   geminiModel?: string;
 }
 
-export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5';
+export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5-5';
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const PRIVACY_CONSENT_VERSION = 1;
 
 export function getAuthConfig(): Promise<AuthConfig> {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.get(['provider', 'anthropicApiKey', 'geminiApiKey', 'togetherApiKey', 'openrouterApiKey', 'groqApiKey', 'togetherModel', 'openrouterModel', 'groqModel', 'anthropicModel', 'geminiModel'], (result) => {
+    chrome.storage.local.get(['echo_privacy_consent', 'provider', 'anthropicApiKey', 'geminiApiKey', 'togetherApiKey', 'openrouterApiKey', 'groqApiKey', 'togetherModel', 'openrouterModel', 'groqModel', 'anthropicModel', 'geminiModel'], (result) => {
+      const consent = result.echo_privacy_consent as { version?: number } | undefined;
+      if (consent?.version !== PRIVACY_CONSENT_VERSION) {
+        reject(new Error('Cloud AI is off until you review and accept the privacy disclosure in ECHO Options.'));
+        return;
+      }
       const provider = (result.provider as AuthConfig['provider']) || 'claude';
       if (provider === 'claude' && !result.anthropicApiKey) {
         reject(new Error('No Anthropic API Key found. Please set one in the extension options.'));

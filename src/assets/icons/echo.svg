@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ECHO">
+  <defs>
+    <radialGradient id="bg" cx="35%" cy="25%" r="90%">
+      <stop offset="0" stop-color="#263351"/>
+      <stop offset="1" stop-color="#090d18"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="80" y1="60" x2="430" y2="450" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a9f4ff"/>
+      <stop offset=".48" stop-color="#34d7ff"/>
+      <stop offset="1" stop-color="#6d7cff"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="15" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="168" fill="none" stroke="#36d9ff" stroke-opacity=".25" stroke-width="30" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="158" fill="#0d1526" stroke="url(#ring)" stroke-width="22"/>
+  <path d="M332 159H190c-20 0-36 16-36 36v122c0 20 16 36 36 36h142v-38H202c-6 0-10-4-10-10v-30h119v-38H192v-30c0-6 4-10 10-10h130z" fill="url(#ring)"/>
+  <circle cx="356" cy="178" r="18" fill="#d8fbff" filter="url(#glow)"/>
+</svg>

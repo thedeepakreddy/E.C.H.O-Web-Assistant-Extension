@@ -65,13 +65,14 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
   const epoch = currentTaskEpoch(tabId);
   // Isolated browsing: every tab-touching tool stays inside the private window.
   const scope = agentScope(scopeForTab(tabId));
+  const recordAction = scope ? async (_action: string, _detail: string, _status: 'approved' | 'denied' | 'done' | 'failed') => {} : logAction;
   if (scope && (DOM_ACTIONS.has(toolName) || ['navigate', 'screenshot'].includes(toolName))) {
     await assertInScope(tabId);
   }
   if (DOM_ACTIONS.has(toolName)) {
     if (!tabId) throw new Error('No active tab to execute action');
-    // Actions that change the page. They are all logged; only paying and
-    // sending a mail or message wait for the user's approval.
+    // Actions that change the page. They are all logged; consequential side
+    // effects wait for the user's one-time approval.
     const guarded = ['click_element', 'click_selector', 'type_text', 'fill_form', 'select_option', 'set_checked'].includes(toolName)
       || (toolName === 'press_key' && String(args?.key) === 'Enter');
     let detail = toolName.replace(/_/g, ' ');
@@ -99,26 +100,29 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
       const kind = sensitiveAction({ tool: toolName, label: expectedLabel, url: pageUrl,
         key: String(args?.key ?? ''), submit: args?.submit === true });
       if (kind) {
-        const prefix = kind === 'payment' ? 'Payment' : 'Send';
+        const prefix = kind === 'payment' ? 'Payment'
+          : kind === 'message' ? 'Send'
+          : kind === 'destructive' ? 'Destructive change'
+          : kind === 'permission' ? 'Access change' : 'Account change';
         // Denied once in this task: say so again rather than asking again.
         const what = `${pageUrl.split(/[?#]/)[0]}|${expectedLabel || toolName}`;
         if (wasDenied(tabId, what)) {
-          await logAction(toolName, detail, 'denied');
+          await recordAction(toolName, detail, 'denied');
           throw new Error(ALREADY_DENIED);
         }
         const approvalWindow = opts.deadline ? opts.deadline - Date.now() - APPROVAL_DEADLINE_MARGIN_MS : undefined;
         if (approvalWindow !== undefined && approvalWindow < MIN_APPROVAL_MS) {
-          await logAction(toolName, detail, 'denied');
+          await recordAction(toolName, detail, 'denied');
           throw new Error('This needs the user\'s approval and there is not enough time left to ask. Tell the user what you want to do and ask them to confirm in chat, then try again.');
         }
         const outcome = await requestApprovalOutcome(toolName, `${prefix}: ${approvalDetail}`, tabId, approvalWindow);
         if (outcome !== 'approved') {
-          await logAction(toolName, detail, 'denied');
+          await recordAction(toolName, detail, 'denied');
           if (outcome === 'denied') rememberDenial(tabId, what);
           throw new Error(outcome === 'denied' ? DENIED : outcome === 'timeout' ? NOT_ANSWERED : 'Task stopped before the action.');
         }
         if (currentTaskEpoch(tabId) !== epoch) throw new Error('Task stopped before the action.');
-        await logAction(toolName, detail, 'approved');
+        await recordAction(toolName, detail, 'approved');
       }
     }
     try {
@@ -129,7 +133,7 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
         else resolve(response.result);
       });
       });
-      if (guarded) await logAction(toolName, detail, 'done');
+      if (guarded) await recordAction(toolName, detail, 'done');
       const newTabUrl = toolName === 'click_element' && result && typeof result === 'object' ? (result as any).newTabUrl : undefined;
       if (typeof newTabUrl === 'string') {
         const opened: any = await executeTool('open_url', { url: newTabUrl }, tabId, opts);
@@ -137,7 +141,7 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
       }
       return result;
     } catch (error) {
-      if (guarded) await logAction(toolName, detail, 'failed');
+      if (guarded) await recordAction(toolName, detail, 'failed');
       throw error;
     }
   }
@@ -148,7 +152,7 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
       const target = await chrome.tabs.get(tabId);
       if (!target.active || target.windowId == null) throw new Error('Switch to the requested tab before capturing a screenshot.');
       if (currentTaskEpoch(tabId) !== epoch) throw new Error('Task stopped before screenshot.');
-      await logAction('screenshot', 'current tab image', 'done');
+      await recordAction('screenshot', 'current tab image', 'done');
       // captureVisibleTab captures the active tab in this exact window.
       return new Promise((resolve, reject) => {
         chrome.tabs.captureVisibleTab(target.windowId, { format: 'png' }, (dataUrl) => {
@@ -162,7 +166,7 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
       const url = safeNavigationUrl(args.url);
       assertIsolatedUrl(url, tabId);
       if (currentTaskEpoch(tabId) !== epoch) throw new Error('Task stopped before navigation.');
-      await logAction('open_url', new URL(url).origin, 'done');
+      await recordAction('open_url', new URL(url).origin, 'done');
       // Create the tab, wait for it to fully load, then return the NEW tab's id.
       // The brain loops watch for `newTabId` in the result and update their
       // activeTabId so all subsequent DOM actions go to the right tab.
@@ -186,7 +190,7 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
       const url = safeNavigationUrl(args.url);
       assertIsolatedUrl(url, tabId);
       if (currentTaskEpoch(tabId) !== epoch) throw new Error('Task stopped before navigation.');
-      await logAction('navigate', new URL(url).origin, 'done');
+      await recordAction('navigate', new URL(url).origin, 'done');
       await new Promise<void>((resolve, reject) => {
         chrome.tabs.update(tabId, { url }, () => {
           if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
@@ -232,7 +236,7 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
       assertTabAccess(tabId, targetTabId);
       await assertInScope(targetTabId);
       if (currentTaskEpoch(tabId) !== epoch) throw new Error('Task stopped before closing the tab.');
-      await logAction('close_tab', `tab ${targetTabId}`, 'done');
+      await recordAction('close_tab', `tab ${targetTabId}`, 'done');
       return new Promise((resolve, reject) => {
         chrome.tabs.remove(targetTabId, () => {
           if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
@@ -247,7 +251,7 @@ export async function executeTool(toolName: string, args: any, tabId?: number, o
       if (!/^[^/\\\x00-\x1f]{1,120}$/.test(filename) || filename === '.' || filename === '..')
         throw new Error('Invalid download filename.');
       if (currentTaskEpoch(tabId) !== epoch) throw new Error('Task stopped before download.');
-      await logAction('download_data', filename, 'done');
+      await recordAction('download_data', filename, 'done');
       const mime = filename.endsWith('.json') ? 'application/json'
         : filename.endsWith('.csv') ? 'text/csv' : 'text/plain';
       const dataUrl = `data:${mime};charset=utf-8,${encodeURIComponent(content)}`;

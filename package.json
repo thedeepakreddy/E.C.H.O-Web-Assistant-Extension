@@ -1,11 +1,15 @@
 {
-  "name": "extension",
+  "name": "echo-online-extension",
   "version": "3.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Local-first AI browser assistant for Chrome with explicit approval for consequential actions.",
+  "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs",
+    "typecheck": "tsc --noEmit",
     "build": "webpack --mode production",
+    "e2e:smoke": "npm run build && node tools/e2e/multi-agent.cjs",
+    "release:package": "npm run build && node tools/release/package.cjs",
+    "release:check": "node tools/release/package.cjs --check",
     "docs:showcase": "webpack --config tools/docs/webpack.config.cjs",
     "docs:capture": "npm run build && npm run docs:showcase && node tools/docs/capture-media.mjs",
     "openclaw:probe": "node tools/openclaw/probe.cjs",
@@ -23,9 +27,17 @@
     "openclaw:approvals-e2e": "npm run build && node tools/openclaw/approvals-e2e.cjs",
     "openclaw:stale-token-e2e": "node tools/openclaw/stale-token-e2e.cjs"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["chrome-extension", "browser-assistant", "local-first", "ai"],
+  "author": "Deepak Reddy",
   "license": "ISC",
+  "homepage": "https://github.com/thedeepakreddy/Echo-Web-Assistant-Extension#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thedeepakreddy/Echo-Web-Assistant-Extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thedeepakreddy/Echo-Web-Assistant-Extension/issues"
+  },
   "type": "commonjs",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -42,6 +54,7 @@
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^7.1.4",
     "html-webpack-plugin": "^5.6.7",
+    "playwright": "^1.63.0",
     "style-loader": "^4.0.0",
     "ts-loader": "^9.6.2",
     "typescript": "^5.9.3",

@@ -41,7 +41,7 @@
   color: var(--e-on-accent);
   font: 600 13px/1.2 var(--e-font);
   cursor: pointer;
-  transition: transform 0.25s var(--e-spring, ease), filter 0.2s ease;
+  transition: transform 0.25s var(--e-out, ease-out), filter 0.2s ease;
 }
 .agent-primary:hover { filter: brightness(1.06); }
 .agent-primary:active { transform: scale(0.97); }

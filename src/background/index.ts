@@ -8,7 +8,7 @@ import { saveHighlight, highlightsForUrl, allHighlights, clearHighlights, forget
 import { runWatcherCheck, rehydrateWatchers, WATCH_ALARM_PREFIX, listWatchers, onWatcherFired } from './page-watcher';
 import { OWN_WATCHERS } from './openclaw/browser-tools';
 import { cachePrune } from './response-cache';
-import { say, sayAs, setState, clearTranscript, echoUser } from './bus';
+import { say, sayAs, setState, clearTranscript, echoUser, setTabEphemeral } from './bus';
 import { settleApproval, cancelTask, pendingApproval, approvalById } from './safety';
 import { isIndexable, forgetSite, clearKB, kbSize, recentPages } from './knowledge-base';
 import { cacheClear } from './response-cache';
@@ -284,18 +284,22 @@ async function runRequest(text: string, tabId?: number, opts: RequestOptions = {
     }
 
     if (opts.isolated) {
-      echoUser(`Private window · ${text}`, tabId);
+      echoUser(`Private window · ${text}`, tabId, false);
       if (!await isolationAllowed()) {
         say(tabId, INCOGNITO_HELP, 0);
         chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` }).catch(() => {});
         return;
       }
       const iso = await openIsolatedWindow();
+      const privateScope = `private:${id}`;
+      setTabEphemeral(iso.tabId, true);
       setAgentScope({ windowId: iso.windowId });
       try {
-        await processUserInput(prompt, iso.tabId, { skipEcho: true, isolated: true, webSearch: opts.webSearch });
+        await processUserInput(prompt, iso.tabId, { skipEcho: true, isolated: true, webSearch: opts.webSearch, scope: privateScope });
       } finally {
         setAgentScope(null);
+        setTabEphemeral(iso.tabId, false);
+        clearCloudConversation(privateScope);
       }
       return;
     }
@@ -410,7 +414,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 });
 
 // Right-click context menus.
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   try {
     chrome.contextMenus.create({ id: 'echo-open-panel', title: 'Open ECHO chat panel', contexts: ['all'] });
     chrome.contextMenus.create({ id: 'echo-ask-selection', title: 'Ask ECHO about "%s"', contexts: ['selection'] });
@@ -422,6 +426,12 @@ chrome.runtime.onInstalled.addListener(() => {
   // Housekeeping on install/update.
   cachePrune().catch(() => {});
   rehydrateWatchers().catch(() => {});
+  // First run is intentionally a disclosure/setup screen. Cloud requests stay
+  // disabled until the user explicitly accepts the current privacy notice.
+  if (details.reason === 'install') chrome.runtime.openOptionsPage().catch(() => {});
+  else chrome.storage.local.get(['echo_privacy_consent']).then(result => {
+    if ((result.echo_privacy_consent as any)?.version !== 1) chrome.runtime.openOptionsPage().catch(() => {});
+  }).catch(() => {});
 });
 
 // Alarms and watchers survive restarts; re-arm them when the worker wakes.
@@ -610,6 +620,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       isEchoAwake = true;
       await chrome.storage.session.set({ isEchoAwake });
       await broadcastWakeState();
+      sendResponse({ success: true });
+    }).catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'ECHO_WAKE_AND_LISTEN') {
+    if (sender.tab?.id == null) { sendResponse({ success: false }); return false; }
+    wakeStateReady.then(async () => {
+      isEchoAwake = true;
+      await chrome.storage.session.set({ isEchoAwake });
+      await chrome.tabs.sendMessage(sender.tab!.id!, { type: 'ECHO_WAKE_AND_LISTEN' });
       sendResponse({ success: true });
     }).catch(error => sendResponse({ success: false, error: error.message }));
     return true;

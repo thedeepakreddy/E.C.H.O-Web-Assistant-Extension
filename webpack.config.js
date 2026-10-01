@@ -8,6 +8,7 @@ module.exports = {
   entry: {
     background: './src/background/index.ts',
     content: './src/content/index.tsx',
+    'content-ui': './src/content/ui-entry.tsx',
     options: './src/popup/options.tsx',
     sidepanel: './src/popup/sidepanel.tsx',
     speech: './src/content/speech.ts',
@@ -60,7 +61,9 @@ module.exports = {
   output: {
     clean: true,
     filename: '[name].js',
-    chunkFilename: 'async.[contenthash:8].js',
+    // Named lazy chunks stay stable so manifest web-accessible resources can
+    // expose only the on-demand content UI. Other async chunks use their ids.
+    chunkFilename: '[name].js',
     path: path.resolve(__dirname, 'dist'),
   },
   plugins: [
@@ -68,9 +71,11 @@ module.exports = {
       patterns: [
         { from: 'manifest.json', to: '.' },
         { from: 'src/popup/options.html', to: '.' },
+        { from: 'src/popup/privacy.html', to: '.' },
         { from: 'src/popup/sidepanel.html', to: '.' },
         { from: 'src/content/speech.html', to: '.' },
         { from: 'src/content/approval.html', to: '.' },
+        { from: 'src/assets/icons/*.png', to: 'icons/[name][ext]' },
         { from: '*/*.webp', context: 'src/assets/characters', to: 'characters/' }
       ],
     }),

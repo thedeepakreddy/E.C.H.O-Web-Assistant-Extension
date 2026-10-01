@@ -20,7 +20,7 @@ const { createGatewayConnection } = require(path.join(ROOT, 'src/background/open
 const { deviceIdentity } = require(path.join(ROOT, 'src/background/openclaw/identity.ts'));
 const { extensionId } = require('./extension-id.cjs');
 
-const OPENCLAW = path.join(os.homedir(), '.npm-global/bin/openclaw');
+const OPENCLAW = require('./bin.cjs').findOpenClaw();
 const PROFILE = 'echo-e2e-token';
 const PORT = 18804;
 const ORIGIN = `chrome-extension://${extensionId()}`;
