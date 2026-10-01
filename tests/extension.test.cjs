@@ -20,6 +20,40 @@ function loadTs(file, globals = {}, requireStub = () => ({})) {
   return exports;
 }
 
+test('cloud providers stay disabled until the privacy disclosure is accepted', async () => {
+  const read = value => ({ storage: { local: { get: (_keys, callback) => callback(value) } } });
+  const withoutConsent = loadTs('src/background/auth.ts', { chrome: read({ anthropicApiKey: 'sk-test' }) });
+  await assert.rejects(withoutConsent.getAuthConfig(), /privacy disclosure/i);
+
+  const accepted = loadTs('src/background/auth.ts', { chrome: read({
+    echo_privacy_consent: { version: 1 }, provider: 'claude', anthropicApiKey: 'sk-test',
+  }) });
+  assert.equal((await accepted.getAuthConfig()).anthropicApiKey, 'sk-test');
+});
+
+test('a lone Option/Alt tap wakes ECHO without stealing modifier combinations', () => {
+  let at = 1000;
+  let wakes = 0;
+  const shortcut = loadTs('src/content/wake-shortcut.ts').wakeModifierHandlers(() => wakes++, () => at);
+  const event = (key, extra = {}) => ({ key, altKey: key === 'Alt', ctrlKey: false, metaKey: false,
+    shiftKey: false, repeat: false, isTrusted: true, ...extra });
+
+  shortcut.keydown(event('Alt'));
+  at += 120;
+  shortcut.keyup(event('Alt', { altKey: false }));
+  assert.equal(wakes, 1);
+
+  shortcut.keydown(event('Alt'));
+  shortcut.keydown(event('e'));
+  shortcut.keyup(event('Alt', { altKey: false }));
+  shortcut.keydown(event('Alt'));
+  at += 700;
+  shortcut.keyup(event('Alt', { altKey: false }));
+  shortcut.keydown(event('Alt', { isTrusted: false }));
+  shortcut.keyup(event('Alt', { isTrusted: false, altKey: false }));
+  assert.equal(wakes, 1);
+});
+
 test('page answer cache never crosses article URLs', async () => {
   const rows = new Map();
   const db = {
@@ -33,6 +67,21 @@ test('page answer cache never crosses article URLs', async () => {
   await cache.cacheStore('What is this about?', 'https://example.com/a', 'Answer for A');
   assert.equal((await cache.cacheLookup('What is this about?', 'https://example.com/a')).answer, 'Answer for A');
   assert.equal(await cache.cacheLookup('What is this about?', 'https://example.com/b'), null);
+});
+
+test('ordinary page-derived answers never cross sites', async () => {
+  const rows = new Map();
+  const db = {
+    STORE_CACHE: 'cache', idbGet: async (_, key) => rows.get(key),
+    idbPut: async (_, row) => rows.set(row.key, row),
+    idbGetAll: async () => [...rows.values()], idbTrim: () => {},
+  };
+  const cache = loadTs('src/background/response-cache.ts', {}, () => db);
+  await cache.cacheStore('What is the refund policy?', 'https://shop-a.test/refunds', 'Shop A allows returns for 30 days.');
+  assert.equal((await cache.cacheLookup('What is the refund policy?', 'https://shop-a.test/refunds')).answer,
+    'Shop A allows returns for 30 days.');
+  assert.equal(await cache.cacheLookup('What is the refund policy?', 'https://shop-b.test/refunds'), null);
+  assert.ok([...rows.keys()][0].startsWith('v2:https://shop-a.test/refunds::'));
 });
 
 test('actions and failed-provider replies are never cached', async () => {
@@ -551,6 +600,15 @@ test('ECHO Writer output is cleaned of wrappers', () => {
   assert.equal(Object.keys(w.WRITER_ACTIONS).filter(k => k.startsWith('translate-')).length, 8);
 });
 
+test('highlight matching maps normalized whitespace back to original offsets', () => {
+  const highlighter = loadTs('src/content/highlighter.ts');
+  const content = 'Before foo    bar\n\tbaz after';
+  const offsets = highlighter.normalizedMatchOffsets(content, 'foo bar baz');
+  assert.deepEqual({ ...offsets }, { start: 7, end: 22 });
+  assert.equal(content.slice(offsets.start, offsets.end), 'foo    bar\n\tbaz');
+  assert.equal(highlighter.normalizedMatchOffsets(content, 'missing text'), null);
+});
+
 test('@ mentioned tabs are fenced and marked as untrusted data', () => {
   const t = loadTs('src/background/tab-context.ts');
   const prompt = t.withTabContext('Compare prices', [
@@ -584,6 +642,28 @@ test('isolated browsing confines tools to the private window and HTTPS', async (
   const listed = await tools.executeTool('list_tabs', {}, 5);
   assert.equal(json(queried), json({ windowId: 9 }));
   assert.equal(listed.tabs.length, 1);
+});
+
+test('private-window messages stream to the UI without entering chat history', () => {
+  const saved = [];
+  const sent = [];
+  const chrome = {
+    tabs: { sendMessage: async (_id, msg) => { sent.push(msg); } },
+    runtime: { sendMessage: async msg => { sent.push(msg); } },
+  };
+  const bus = loadTs('src/background/bus.ts', { chrome }, spec => {
+    if (spec === './chats') return { appendEntry: entry => saved.push(entry), newChat: async () => {}, isTemporaryChat: async () => false };
+    return noLeases;
+  });
+  bus.echoUser('private request', 7, false);
+  bus.setTabEphemeral(7, true);
+  bus.safeSendMessage(7, { type: 'ECHO_SAY', text: 'private answer' });
+  assert.equal(saved.length, 0);
+  assert.ok(sent.some(m => m.text === 'private answer'), 'the answer is still visible during the task');
+  bus.setTabEphemeral(7, false);
+  bus.echoUser('normal request', 7);
+  bus.safeSendMessage(7, { type: 'ECHO_SAY', text: 'normal answer' });
+  assert.deepEqual(saved.map(x => x.text), ['normal request', 'normal answer']);
 });
 
 test('video pages are recognised for transcripts', () => {
@@ -660,7 +740,7 @@ test('a workflow that pays or sends asks for approval once', async () => {
   assert.equal(approvals, 1);
 });
 
-test('only payments and sending mail or messages need approval', () => {
+test('consequential browser actions need approval', () => {
   const { sensitiveAction } = loadTs('src/background/safety.ts', { crypto: webcrypto, setTimeout, clearTimeout });
   const click = (label, url = 'https://example.com/') => sensitiveAction({ tool: 'click_element', label, url });
   // Payments
@@ -675,6 +755,14 @@ test('only payments and sending mail or messages need approval', () => {
   assert.equal(click('Post'), 'message');
   assert.equal(sensitiveAction({ tool: 'press_key', key: 'Enter', url: 'https://web.whatsapp.com/' }), 'message');
   assert.equal(sensitiveAction({ tool: 'type_text', submit: true, url: 'https://mail.google.com/mail/u/0/' }), 'message');
+  // Destructive, account and permission changes
+  assert.equal(click('Delete account'), 'destructive');
+  assert.equal(click('Cancel subscription'), 'destructive');
+  assert.equal(click('Disable two-factor authentication'), 'account');
+  assert.equal(click('Grant access'), 'permission');
+  assert.equal(click('Add administrator'), 'permission');
+  assert.equal(click('Continue', 'https://example.com/settings/security'), 'account');
+  assert.equal(sensitiveAction({ tool: 'press_key', key: 'Enter', url: 'https://example.com/account/delete' }), 'account');
   // Everything else runs without asking
   assert.equal(click('Next'), null);
   assert.equal(click('Add to cart'), null);

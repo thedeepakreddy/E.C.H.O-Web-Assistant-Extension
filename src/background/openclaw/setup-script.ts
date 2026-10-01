@@ -79,11 +79,13 @@ export const SETUP_PROVIDERS = [
   { label: 'Google Gemini: has a free tier; get a key at aistudio.google.com/apikey', provider: 'google',
     model: 'google/gemini-3.8-flash', fallbacks: ['google/gemini-3.1-flash-lite', 'google/gemini-2.5-flash'] },
   { label: 'Anthropic Claude: get a key at console.anthropic.com', provider: 'anthropic',
-    model: 'anthropic/claude-sonnet-5', fallbacks: [] as string[] },
+    model: 'anthropic/claude-sonnet-5-5', fallbacks: [] as string[] },
 ];
 
-// Reads OpenClaw's JSON output. Node is always there: OpenClaw runs on it.
-const PICK = `pick() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s.slice(s.search(/[[{]/)));const r=new Function("j",process.argv[1])(j);if(Array.isArray(r))r.forEach(x=>console.log(x));else if(r)console.log(r)}catch{}})' "$1"; }`;
+// Reads only the fixed fields ECHO needs from OpenClaw JSON. Node is already
+// present because OpenClaw runs on it. Keeping this as an allow-listed switch
+// avoids evaluating shell-provided JavaScript during installation.
+const PICK = `pick() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s.slice(s.search(/[[{]/)));const mode=process.argv[1],id=process.argv[2]||"";let r="";if(mode==="pending-device")r=(j.pending||[]).filter(x=>x.deviceId===id).map(x=>x.requestId);else if(mode==="pending-node")r=(j.pending||j||[]).filter(x=>(x.nodeId||x.deviceId)===id).map(x=>x.requestId||x.id);else if(mode==="node-ready")r=j.connected&&j.approvalState==="approved"?"ready":"";else if(mode==="has-auth")r=(j.auth?.providers||[]).some(x=>(x.profiles?.count||0)>0)?"yes":"";else if(mode==="default-model")r=j.defaultModel||"your model";if(Array.isArray(r))r.forEach(x=>x&&console.log(x));else if(r)console.log(r)}catch{}})' "$@"; }`;
 
 /**
  * The whole setup as one script: install OpenClaw if needed, configure ECHO's
@@ -115,13 +117,13 @@ export function setupScript(extensionId: string, echoVersion: string, opts: Setu
   const connect = device ? `
 step "4/4  Connecting ECHO (keep ECHO's side panel open)"
 for i in $(seq 1 90); do
-  for id in $(${oc} devices list --json 2>/dev/null | pick 'return (j.pending||[]).filter(r => r.deviceId === "${device}").map(r => r.requestId)'); do
+  for id in $(${oc} devices list --json 2>/dev/null | pick pending-device ${device}); do
     ${oc} devices approve "$id" >/dev/null 2>&1 || true
   done
-  for id in $(${oc} nodes pending --json 2>/dev/null | pick 'return (j.pending||j||[]).filter(r => (r.nodeId||r.deviceId) === "${device}").map(r => r.requestId||r.id)'); do
+  for id in $(${oc} nodes pending --json 2>/dev/null | pick pending-node ${device}); do
     ${oc} nodes approve "$id" >/dev/null 2>&1 || true
   done
-  if ${oc} nodes describe --node ${device} --json 2>/dev/null | pick 'return j.connected && j.approvalState === "approved" ? "ready" : ""' | grep -q ready; then
+  if ${oc} nodes describe --node ${device} --json 2>/dev/null | pick node-ready | grep -q ready; then
     step "Done. Go back to Chrome: your avatars are ready."
     exit 0
   fi
@@ -176,8 +178,8 @@ ${files}
 ${oc} config validate >/dev/null
 
 step "2/4  Choosing the AI your avatars use"
-if ${oc} models status --json 2>/dev/null | pick 'return (j.auth?.providers||[]).some(p => (p.profiles?.count||0) > 0) ? "yes" : ""' | grep -q yes; then
-  echo "Already set up: $(${oc} models status --json 2>/dev/null | pick 'return j.defaultModel || "your model"')"
+if ${oc} models status --json 2>/dev/null | pick has-auth | grep -q yes; then
+  echo "Already set up: $(${oc} models status --json 2>/dev/null | pick default-model)"
 else
 ${choices}
   read -r -p "Type a number and press Return: " choice

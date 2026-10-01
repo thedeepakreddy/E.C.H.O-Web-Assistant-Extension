@@ -92,6 +92,31 @@ async function main() {
   const orbA = await orbAvatar(cdp, `${base}/a`, extensionId);
   const orbB = await orbAvatar(cdp, `${base}/b`, extensionId);
   check('each tab\'s orb shows the avatar assigned to it', orbA === 'echo-analyst' && orbB === 'echo-style', `A: ${orbA}, B: ${orbB}`);
+  await inWorker(`chrome.tabs.sendMessage(${tabA}, { type: 'ECHO_GLOBAL_WAKE', state: true }).then(() => true)`);
+  const pageA = await findTarget(cdp, t => t.type === 'page' && t.url === `${base}/a`);
+  const lazyUi = await waitFor(() => evaluate(cdp, pageA.targetId, `!!document.querySelector('#echo-extension-root')`), 5_000);
+  check('the visual UI loads on demand from the lightweight content script', !!lazyUi);
+  // Observe the real content UI -> background speech-control message. This
+  // proves a cold Option/Alt tap reaches the microphone start path, rather
+  // than only toggling the global awake flag.
+  await inWorker(`(() => {
+    chrome.runtime.onMessage.addListener((message, sender) => {
+      if (message.type === 'ECHO_SPEECH_CONTROL' && message.command === 'start') {
+        void chrome.storage.session.set({ echoE2eSpeechStartTab: sender.tab?.id ?? -1 });
+      }
+    });
+    return chrome.storage.session.remove('echoE2eSpeechStartTab').then(() =>
+      chrome.storage.session.set({ isEchoAwake: false })).then(() => true);
+  })()`);
+  const pageB = await findTarget(cdp, t => t.type === 'page' && t.url === `${base}/b`);
+  const { sessionId: keySession } = await cdp.send('Target.attachToTarget', { targetId: pageB.targetId, flatten: true });
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Alt', code: 'AltLeft', modifiers: 1, windowsVirtualKeyCode: 18 }, keySession);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Alt', code: 'AltLeft', modifiers: 0, windowsVirtualKeyCode: 18 }, keySession);
+  await cdp.send('Target.detachFromTarget', { sessionId: keySession });
+  const modifierWake = await waitFor(() => inWorker(`chrome.storage.session.get(['isEchoAwake', 'echoE2eSpeechStartTab'])
+    .then(r => r.isEchoAwake === true && r.echoE2eSpeechStartTab === ${tabB})`), 5_000);
+  const wakeUi = await evaluate(cdp, pageB.targetId, `!!document.querySelector('#echo-extension-root')`);
+  check('a standalone Option/Alt tap wakes ECHO and starts listening', !!modifierWake && wakeUi);
 
   // A slow recorded workflow (six 5-second waits) for the analyst.
   await inWorker(`chrome.storage.local.set({ echo_workflows: { 'slow demo': {

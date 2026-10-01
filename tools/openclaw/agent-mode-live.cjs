@@ -9,7 +9,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { evaluate, delay } = require('../e2e/chrome.cjs');
 
-const OPENCLAW = path.join(os.homedir(), '.npm-global/bin/openclaw');
+const OPENCLAW = require('./bin.cjs').findOpenClaw();
 const oc = (...args) => execFileSync(OPENCLAW, ['--profile', 'echo', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const ocJson = (...args) => { const out = oc(...args, '--json'); return JSON.parse(out.slice(out.search(/[[{]/))); };
 const tryOc = (...args) => { try { oc(...args); return true; } catch { return false; } };

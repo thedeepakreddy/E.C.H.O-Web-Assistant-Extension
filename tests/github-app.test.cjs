@@ -38,6 +38,11 @@ test('github: agents see reading and issue tools only; pushing, merging and dele
   const refused = await bridge.handle({ id: 2, method: 'tools/call', params: { name: 'push_files', arguments: {} } });
   assert.equal(refused.result.isError, true);
   assert.ok(!gh.seen.some(s => s.method === 'tools/call'), 'a refused tool never reaches GitHub');
+  const close = await bridge.handle({ id: 4, method: 'tools/call', params: { name: 'issue_write', arguments: { method: 'close' } } });
+  assert.equal(close.result.isError, true);
+  assert.ok(!gh.seen.some(s => s.method === 'tools/call'), 'a generic write cannot close or edit an issue');
+  const create = await bridge.handle({ id: 5, method: 'tools/call', params: { name: 'issue_write', arguments: { method: 'create' } } });
+  assert.equal(create.result.content[0].text, 'ran issue_write');
   const ran = await bridge.handle({ id: 3, method: 'tools/call', params: { name: 'list_issues', arguments: {} } });
   assert.equal(ran.result.content[0].text, 'ran list_issues');
   assert.equal(gh.seen.find(s => s.method === 'tools/call').session, 'sess-1', 'the session from initialize is kept');

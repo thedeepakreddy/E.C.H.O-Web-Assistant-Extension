@@ -1,12 +1,26 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
 import { handleDomAction } from './actions';
-import { EchoUI } from './ui';
 import { initHighlighter, renderHighlights } from './highlighter';
 import { initPassiveObserver } from './passive-observer';
 import { startRecording } from './recorder';
 import { videoTranscriptAction } from './video-transcript';
 import { captureSelection } from './writer';
+import { installWakeShortcut } from './wake-shortcut';
+
+let uiLoaded = false;
+let uiLoading: Promise<void> | null = null;
+window.addEventListener('echo-ui-ready', () => { uiLoaded = true; }, { once: true });
+
+/** Load React and the visual assistant only when something needs to be shown. */
+function ensureUI(message?: unknown): void {
+  if (message && !uiLoaded) {
+    const w = window as any;
+    (w.__echoPendingMessages ||= []).push(message);
+  }
+  if (uiLoaded || uiLoading) return;
+  uiLoading = import(/* webpackIgnore: true */ chrome.runtime.getURL('content-ui.js'))
+    .then(() => {})
+    .catch(error => { uiLoading = null; console.error('[ECHO] UI failed to load:', error); });
+}
 
 // 1. DOM actions requested by the background (model tools AND the local stack).
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -47,42 +61,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     return true;
   }
+
+  // Speech/status/chat/approval messages need the visual interface. The small
+  // page-tools bundle remains available without downloading React on every URL.
+  if (!uiLoaded && /^ECHO_(GLOBAL_WAKE|WAKE_AND_LISTEN|PREFS_UPDATED|STATE|WRITER_SHOW|SAY|SYNC_POSITION|OPEN_PALETTE|APPROVAL_|SPEECH_EVENT_)/.test(String(message.type || ''))) {
+    ensureUI(message);
+  }
 });
 
-// 2. Inject the React UI (reactor orb + chat + suggestion toast).
-const initUI = () => {
-  if (document.getElementById('echo-extension-root')) return;
+installWakeShortcut(() => {
+  chrome.runtime.sendMessage({ type: 'ECHO_WAKE_AND_LISTEN' }).catch(() => {});
+});
 
-  const container = document.createElement('div');
-  container.id = 'echo-extension-root';
-  container.style.position = 'fixed';
-  container.style.top = '0';
-  container.style.left = '0';
-  container.style.width = '100vw';
-  container.style.height = '100vh';
-  container.style.zIndex = '2147483647';
-  container.style.pointerEvents = 'none'; // clicks pass through except on the orb
-
-  document.body.appendChild(container);
-
-  const root = createRoot(container);
-  root.render(
-    <div style={{ pointerEvents: 'auto' }}>
-      <EchoUI />
-    </div>
-  );
-};
-
-// 3. Local-first features that run without any user action.
+// 2. Local-first features that run without any user action.
 const initLocalFeatures = () => {
   chrome.runtime.sendMessage({ type: 'ECHO_CONTENT_PREFS' }).then((s: any) => {
     const autoIndex = s?.success && s.autoIndex === true && s.siteAllowed === true;
-    const passive = s?.success && s.passiveSuggest !== false;
+    const passive = s?.success && s.passiveSuggest === true;
 
     // Highlight capture is always on — it is purely local and user-initiated.
     initHighlighter();
 
-    if (passive) initPassiveObserver();
+    if (passive) { ensureUI(); initPassiveObserver(); }
 
     if (autoIndex) reportPageToKB();
 
@@ -95,6 +95,9 @@ const initLocalFeatures = () => {
   }).catch(() => { initHighlighter(); });
   chrome.runtime.sendMessage({ type: 'ECHO_RECORD_STATUS' })
     .then((r: any) => { if (r?.active) startRecording(Number(r.count) || 0); })
+    .catch(() => {});
+  chrome.runtime.sendMessage({ type: 'CHECK_AWAKE_STATE' })
+    .then((r: any) => { if (r?.isAwake) ensureUI({ type: 'ECHO_GLOBAL_WAKE', state: true }); })
     .catch(() => {});
 };
 
@@ -118,7 +121,7 @@ function reportPageToKB() {
   }, 2500);
 }
 
-const boot = () => { initUI(); initLocalFeatures(); };
+const boot = () => { initLocalFeatures(); };
 
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
   boot();

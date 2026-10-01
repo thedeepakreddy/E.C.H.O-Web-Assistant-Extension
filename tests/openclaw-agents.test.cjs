@@ -69,6 +69,8 @@ test('setup script: valid bash, this extension only, every command, locked-down 
   assert.deepEqual(agents['echo-analyst'].skills, []);
   assert.match(script, /config set tools\.codeMode false/);
   assert.match(script, /config set tools\.toolSearch false/);
+  assert.doesNotMatch(script, /new Function|\beval\s*\(/, 'the generated installer never evaluates data as code');
+  assert.match(script, /mode==="pending-device"/, 'JSON parsing uses fixed allow-listed selectors');
   assert.match(script, /rm -f "\$HOME\/\.openclaw-echo\/workspace-echo-analyst"\/USER\.md/);
   const rules = setup.agentsMd(r.avatarByCharacter('echo-analyst'));
   assert.match(rules, /Never fill gaps from memory or from earlier tasks/);

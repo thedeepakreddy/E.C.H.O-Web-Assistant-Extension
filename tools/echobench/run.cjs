@@ -52,7 +52,7 @@ const PROVIDERS = {
 
 // --- the local OpenClaw gateway (--openclaw) -----------------------------------
 
-const OPENCLAW = process.env.OPENCLAW || path.join(os.homedir(), '.npm-global/bin/openclaw');
+const OPENCLAW = withOpenClaw ? require('../openclaw/bin.cjs').findOpenClaw() : '';
 const oc = (...args) => execFileSync(OPENCLAW, ['--profile', 'echo', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const ocJson = (...args) => { const out = oc(...args, '--json'); return JSON.parse(out.slice(out.search(/[[{]/))); };
 const tryOc = (...args) => { try { oc(...args); return true; } catch { return false; } };

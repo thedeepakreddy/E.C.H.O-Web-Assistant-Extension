@@ -1,5 +1,5 @@
 // Approvals for what ECHO's agents do in connected apps (email, GitHub…). Echo
-// guard, a plugin on ECHO's OpenClaw gateway, pauses a send or a payment and
+// guard, a plugin on ECHO's OpenClaw gateway, pauses a consequential action and
 // asks every approval client; ECHO is one. It shows its usual Allow / Deny, in
 // the agent's tab and the chat panel, and answers the gateway. No answer in
 // time, a stop, or a closed ECHO all mean Deny: the gateway blocks the call.
@@ -24,7 +24,9 @@ export interface ApprovalConnection {
 const MARGIN_MS = 5_000;
 const ECHO_AGENT = /^echo(-[a-z]+)?$/;
 
-const KIND_OF_SCOPE: Record<string, Kind> = { payment: 'payment', 'message-send': 'message', 'external-post': 'message' };
+const KIND_OF_SCOPE: Record<string, Kind> = {
+  payment: 'payment', 'message-send': 'message', 'external-post': 'message', 'external-change': 'message',
+};
 
 /** The app a request is for, from the tool's name ("gmail__send_email" → "Gmail") unless its scope names it. */
 function appOf(request: any): string {

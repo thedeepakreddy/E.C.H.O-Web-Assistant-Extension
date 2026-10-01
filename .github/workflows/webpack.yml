@@ -1,4 +1,4 @@
-name: NodeJS with Webpack
+name: Release checks
 
 on:
   push:
@@ -7,22 +7,32 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x, 22.x]
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Use Node.js ${{ matrix.node-version }}
+    - name: Use Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: 22
+        cache: npm
 
-    - name: Build
-      run: |
-        npm install
-        npx webpack
+    - run: npm ci
+    - run: npm run typecheck
+    - run: npm test
+    - run: npm audit --audit-level=high
+    - run: npm run build
+    - run: npm run release:check
+    - name: Install Chromium for the browser smoke test
+      run: npx playwright install --with-deps chromium
+    - run: npm run e2e:smoke
+    - run: node tools/release/package.cjs
+    - name: Upload installable extension
+      uses: actions/upload-artifact@v4
+      with:
+        name: echo-online-${{ github.sha }}
+        path: |
+          package for sharing/Echo_Online_v*.zip
+          package for sharing/Echo_Online_v*.sha256

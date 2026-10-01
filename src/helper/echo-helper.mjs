@@ -31,7 +31,7 @@ export const BRIDGE_SOCKET = process.env.ECHO_BRIDGE_SOCKET || (() => {
 })();
 const AI = {
   google: { model: 'google/gemini-3.8-flash', fallbacks: ['google/gemini-3.1-flash-lite', 'google/gemini-2.5-flash'] },
-  anthropic: { model: 'anthropic/claude-sonnet-5', fallbacks: [] },
+  anthropic: { model: 'anthropic/claude-sonnet-5-5', fallbacks: [] },
 };
 
 // --- checks ------------------------------------------------------------------

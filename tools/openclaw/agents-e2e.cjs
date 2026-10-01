@@ -32,7 +32,7 @@ const { createGatewayConnection } = require(path.join(root, 'src/background/open
 const { deviceIdentity } = require(path.join(root, 'src/background/openclaw/identity.ts'));
 const { keyStore, tokenStore, operatorClient } = require('./probe-identity.cjs');
 
-const OPENCLAW = path.join(os.homedir(), '.npm-global/bin/openclaw');
+const OPENCLAW = require('./bin.cjs').findOpenClaw();
 const URL_ = 'ws://127.0.0.1:18790';
 const FIXTURES = path.join(root, 'tools/echobench/fixtures');
 const results = [];

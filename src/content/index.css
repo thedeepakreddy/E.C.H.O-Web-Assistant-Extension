@@ -50,7 +50,7 @@
   pointer-events: none;
   opacity: 0;
   transform: translateY(6px) scale(0.97);
-  transition: opacity 0.25s var(--e-ease), transform 0.35s var(--e-spring);
+  transition: opacity 0.25s var(--e-ease), transform 0.35s var(--e-out);
 }
 
 #echo-root-wrapper #echo-log-box.visible {
@@ -79,7 +79,7 @@
   letter-spacing: -0.006em;
   text-align: left;
   transform-origin: 85% 100%;
-  transition: opacity 0.2s var(--e-ease), transform 0.42s var(--e-spring);
+  transition: opacity 0.2s var(--e-ease), transform 0.42s var(--e-out);
 }
 /* Edge light: the rim brightens where light strikes the glass. */
 #echo-root-wrapper #echo-chat-box::before {
@@ -193,7 +193,7 @@
   background: transparent;
   color: var(--e-text-2);
   cursor: pointer;
-  transition: background 0.2s var(--e-ease), color 0.2s var(--e-ease), transform 0.3s var(--e-spring);
+  transition: background 0.2s var(--e-ease), color 0.2s var(--e-ease), transform 0.3s var(--e-out);
 }
 #echo-root-wrapper .cmd-icon-btn:hover {
   color: var(--e-text);
@@ -264,7 +264,7 @@
   color: var(--e-on-accent);
   background: var(--e-accent-fill);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 2px 10px color-mix(in srgb, var(--e-accent) 45%, transparent);
-  transition: transform 0.3s var(--e-spring), opacity 0.2s var(--e-ease), filter 0.2s var(--e-ease);
+  transition: transform 0.3s var(--e-out), opacity 0.2s var(--e-ease), filter 0.2s var(--e-ease);
 }
 #echo-root-wrapper #echo-send-btn:hover:not(:disabled) { filter: brightness(1.08); transform: scale(1.05); }
 #echo-root-wrapper #echo-send-btn:active:not(:disabled) { transform: scale(0.9); }
@@ -304,7 +304,7 @@
   font-size: 12.5px;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.2s var(--e-ease), box-shadow 0.2s var(--e-ease), transform 0.35s var(--e-spring);
+  transition: background 0.2s var(--e-ease), box-shadow 0.2s var(--e-ease), transform 0.35s var(--e-out);
 }
 #echo-root-wrapper .cmd-chip-icon {
   flex: none;
@@ -655,7 +655,7 @@
   opacity: 0;
   transform: translateY(8px) scale(0.6);
   transform-origin: 80% 100%;
-  transition: opacity 250ms ease, transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity 250ms ease, transform 350ms var(--e-out);
 }
 #echo-root-wrapper[data-status="thinking"] .echo-avatar .av-thought {
   opacity: 1;
@@ -777,7 +777,7 @@
   color: var(--e-text);
   pointer-events: auto;
   z-index: 2147483646;
-  animation: echo-toast-in 0.45s var(--e-spring);
+  animation: echo-toast-in 0.45s var(--e-out);
 }
 @keyframes echo-toast-in {
   from { opacity: 0; transform: translate(-50%, 16px) scale(0.96); }
@@ -789,7 +789,7 @@
   border-radius: 999px;
   cursor: pointer;
   font: 600 12.5px var(--e-font);
-  transition: transform 0.3s var(--e-spring), filter 0.2s, color 0.2s;
+  transition: transform 0.3s var(--e-out), filter 0.2s, color 0.2s;
 }
 #echo-suggest-toast button:active { transform: scale(0.93); }
 #echo-suggest-toast .echo-suggest-yes {
@@ -878,7 +878,7 @@
 #echo-writer-card .echo-writer-actions button {
   border: 1px solid var(--e-bubble-rim); border-radius: 999px; background: var(--e-bubble-fill); box-shadow: var(--e-bubble-shadow);
   color: var(--e-text); padding: 7px 16px; cursor: pointer; font: 500 12.5px var(--e-font);
-  transition: transform 0.3s var(--e-spring);
+  transition: transform 0.3s var(--e-out);
 }
 #echo-writer-card .echo-writer-actions button:active { transform: scale(0.94); }
 #echo-writer-card .echo-writer-actions button.primary {

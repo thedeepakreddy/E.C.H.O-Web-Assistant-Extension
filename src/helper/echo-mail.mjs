@@ -47,9 +47,11 @@ export const TOOLS = [
       cc: { type: 'array', items: { type: 'string' } },
       subject: { type: 'string' }, body: { type: 'string', description: 'Plain text.' } } } },
   { name: 'reply_email',
-    description: 'Reply to an email (by id) in the same conversation. The user is asked to allow it first.',
-    inputSchema: { type: 'object', required: ['id', 'body'], additionalProperties: false, properties: {
-      id: { type: 'string' }, body: { type: 'string', description: 'Plain text.' }, reply_all: { type: 'boolean' } } } },
+    description: 'Reply to an email (by id) in the same conversation. Read it first, then copy its exact reply recipients into to/cc so the user can review them before allowing the send.',
+    inputSchema: { type: 'object', required: ['id', 'body', 'to'], additionalProperties: false, properties: {
+      id: { type: 'string' }, body: { type: 'string', description: 'Plain text.' }, reply_all: { type: 'boolean' },
+      to: { type: 'array', items: { type: 'string' }, description: 'Expected reply recipient from read_email.' },
+      cc: { type: 'array', items: { type: 'string' }, description: 'Expected Reply All recipients from read_email; empty for Reply.' } } } },
 ];
 
 class ToolError extends Error {}
@@ -61,6 +63,8 @@ const addresses = (value, field) => {
   return list;
 };
 const who = list => (list || []).map(a => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
+const normalizedAddresses = value => addresses(value, 'recipients').map(a => a.toLowerCase()).sort();
+const sameAddresses = (a, b) => JSON.stringify(normalizedAddresses(a)) === JSON.stringify(normalizedAddresses(b));
 const stripHtml = html => html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, ' ').replace(/<br\s*\/?>|<\/p>/gi, '\n')
   .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
 
@@ -159,6 +163,11 @@ export function createMailTools({ config, connect, transport }) {
       const me = config.address.toLowerCase();
       const replyTo = (env.replyTo?.length ? env.replyTo : env.from || []).map(a => a.address).filter(Boolean);
       const others = args.reply_all ? [...(env.to || []), ...(env.cc || [])].map(a => a.address).filter(a => a && a.toLowerCase() !== me) : [];
+      const approvedTo = addresses(args.to, 'to');
+      const approvedCc = addresses(args.cc, 'cc');
+      if (!approvedTo.length || !sameAddresses(approvedTo, replyTo) || !sameAddresses(approvedCc, others)) {
+        throw new ToolError('The reply recipients changed or were not reviewed. Read the email again and approve the exact recipients.');
+      }
       const subject = /^re:/i.test(env.subject || '') ? env.subject : `Re: ${env.subject || ''}`;
       const info = await transport(config).sendMail({ from: config.address, to: replyTo, cc: others.length ? others : undefined, subject, text: body,
         ...(env.messageId ? { inReplyTo: env.messageId, references: [env.messageId] } : {}) });

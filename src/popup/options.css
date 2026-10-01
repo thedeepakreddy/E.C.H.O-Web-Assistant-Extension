@@ -72,6 +72,8 @@ b { font-weight: 600; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--e-accent) 16%, transparent), 0 0 8px var(--e-accent);
 }
 .group-footer { margin: 10px 0 0; font: var(--e-t-caption); color: var(--e-text-3); white-space: pre-line; }
+.disclosure p { margin: 0; color: var(--e-text-2); font: var(--e-t-small); line-height: 1.5; }
+.disclosure p + p { margin-top: 8px; }
 
 /* ---- rows ---- */
 .row {
@@ -149,7 +151,7 @@ button.primary, button.secondary {
   padding: 0 16px;
   border-radius: 999px;
   font: 600 12.5px/1 var(--e-font);
-  transition: transform 0.3s var(--e-spring), background 0.2s var(--e-ease), filter 0.2s var(--e-ease);
+  transition: transform 0.3s var(--e-out), background 0.2s var(--e-ease), filter 0.2s var(--e-ease);
 }
 button.secondary {
   font-weight: 500;
@@ -183,7 +185,7 @@ button:focus-visible { outline: none; box-shadow: var(--e-focus); }
   background: var(--e-bubble-fill);
   border: 1px solid var(--e-bubble-rim);
   box-shadow: var(--e-bubble-shadow);
-  transition: transform 0.35s var(--e-spring), background 0.2s var(--e-ease), box-shadow 0.25s var(--e-ease);
+  transition: transform 0.35s var(--e-out), background 0.2s var(--e-ease), box-shadow 0.25s var(--e-ease);
 }
 .appearance-card:hover { background: var(--e-bubble-fill-hover); transform: translateY(-1px); }
 .appearance-card:active { transform: scale(0.97); }
@@ -264,7 +266,7 @@ input.switch::after {
   border-radius: 50%;
   background: radial-gradient(circle at 40% 30%, #fff, #eceef3);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
-  transition: transform 0.35s var(--e-spring);
+  transition: transform 0.35s var(--e-out);
 }
 input.switch:checked {
   background: linear-gradient(135deg, var(--e-accent), var(--e-accent-2));

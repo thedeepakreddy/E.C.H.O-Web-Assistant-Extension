@@ -102,6 +102,14 @@ function paintSelection() {
 }
 
 /** Re-apply stored highlights by locating their text in the document. */
+export function normalizedMatchOffsets(content: string, target: string): { start: number; end: number } | null {
+  const needle = target.replace(/\s+/g, ' ').trim();
+  if (!needle) return null;
+  const pattern = needle.split(' ').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+  const match = new RegExp(pattern).exec(content);
+  return match ? { start: match.index, end: match.index + match[0].length } : null;
+}
+
 export function renderHighlights(texts: string[]): number {
   if (!texts?.length) return 0;
   let painted = 0;
@@ -120,28 +128,43 @@ export function renderHighlights(texts: string[]): number {
       },
     });
 
+    const nodes: Text[] = [];
     let node: Node | null;
-    let done = false;
-    while (!done && (node = walker.nextNode())) {
-      const content = node.textContent || '';
-      // Only single-node matches; cross-element passages are skipped rather
-      // than risking a mangled DOM.
-      const idx = content.replace(/\s+/g, ' ').indexOf(needle);
-      if (idx === -1) continue;
+    while ((node = walker.nextNode())) nodes.push(node as Text);
+    const content = nodes.map(n => n.textContent || '').join('');
+    const offsets = normalizedMatchOffsets(content, needle);
+    if (!offsets) continue;
+
+    const segments: { node: Text; start: number; end: number }[] = [];
+    let at = 0;
+    for (const textNode of nodes) {
+      const length = textNode.textContent?.length || 0;
+      const start = Math.max(0, offsets.start - at);
+      const end = Math.min(length, offsets.end - at);
+      if (start < end) segments.push({ node: textNode, start, end });
+      at += length;
+      if (at >= offsets.end) break;
+    }
+
+    // Wrap from the end so splitting a later text node cannot invalidate the
+    // offsets or references for earlier nodes. Each range stays inside one
+    // text node, so selections spanning inline elements are safe to restore.
+    let wrapped = 0;
+    for (const segment of segments.reverse()) {
       try {
         const range = document.createRange();
-        range.setStart(node, idx);
-        range.setEnd(node, Math.min(idx + needle.length, content.length));
+        range.setStart(segment.node, segment.start);
+        range.setEnd(segment.node, segment.end);
         const mark = document.createElement('mark');
         mark.className = MARK_CLASS;
         mark.style.background = 'rgba(74,144,226,0.30)';
         mark.style.color = 'inherit';
         mark.style.borderRadius = '2px';
         range.surroundContents(mark);
-        painted++;
-        done = true;
+        wrapped++;
       } catch { /* skip this occurrence */ }
     }
+    if (wrapped) painted++;
   }
   return painted;
 }

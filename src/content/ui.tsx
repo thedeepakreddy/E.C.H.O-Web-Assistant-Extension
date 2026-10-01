@@ -215,6 +215,13 @@ export function EchoUI() {
     const handleMessage = (message: any) => {
       if (message.type === 'ECHO_GLOBAL_WAKE') {
         setVisible(message.state);
+      } else if (message.type === 'ECHO_WAKE_AND_LISTEN') {
+        setVisible(true);
+        setChatVisible(false);
+        window.speechSynthesis.cancel();
+        setTalking(false);
+        setInputText('');
+        sendSpeechControl('start');
       } else if (message.type === 'ECHO_PREFS_UPDATED') {
         handsfreeRef.current = !!message.handsfree;
         speechLanguageRef.current = String(message.language || 'en-US');
@@ -329,6 +336,10 @@ export function EchoUI() {
     };
     
     chrome.runtime.onMessage.addListener(handleMessage);
+    window.dispatchEvent(new CustomEvent('echo-ui-ready'));
+    const pending = ((window as any).__echoPendingMessages || []) as any[];
+    (window as any).__echoPendingMessages = [];
+    pending.forEach(handleMessage);
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
     };

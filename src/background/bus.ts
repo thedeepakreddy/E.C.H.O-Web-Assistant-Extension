@@ -7,6 +7,14 @@
 import { appendEntry, newChat, isTemporaryChat, ChatEntry, Source } from './chats';
 import { DEFAULT_SCOPE, scopeForTab } from './agents/leases';
 
+// Private-window tasks still stream into the visible panel, but their content
+// must never enter the saved/temporary chat transcript.
+const ephemeralTabs = new Set<number>();
+
+export function setTabEphemeral(tabId: number, ephemeral: boolean): void {
+  if (ephemeral) ephemeralTabs.add(tabId); else ephemeralTabs.delete(tabId);
+}
+
 export type TranscriptEntry = ChatEntry;
 
 /** Append to the active chat (saved history, or the temporary chat). */
@@ -37,7 +45,7 @@ export function safeSendMessage(tabId: number | undefined | null, msg: any, agen
   if (['ECHO_SAY', 'ECHO_STATE', 'ECHO_USAGE', 'ECHO_SUGGEST', 'ECHO_DRAFT'].includes(msg.type)) {
     try { chrome.runtime.sendMessage(msg).catch(() => {}); } catch { /* no page open */ }
   }
-  if (msg.type === 'ECHO_SAY' && typeof msg.text === 'string') {
+  if (msg.type === 'ECHO_SAY' && typeof msg.text === 'string' && !ephemeralTabs.has(Number(tabId))) {
     pushTranscript({ role: 'echo', text: msg.text, tier: msg.tier, sources: msg.sources, searchHtml: msg.searchHtml, agent: msg.agent,
       ...(msg.unverified?.length ? { unverified: msg.unverified } : {}) });
   }
@@ -80,9 +88,9 @@ export function setStateAs(agent: string, tabId: number | undefined, state: stri
 }
 
 /** Echo the user's own message into the transcript + panel of the scope that owns `tabId`. */
-export function echoUser(text: string, tabId?: number | null) {
+export function echoUser(text: string, tabId?: number | null, persist = true) {
   const agent = scopeForTab(tabId);
-  pushTranscript({ role: 'user', text, agent });
+  if (persist && !ephemeralTabs.has(Number(tabId))) pushTranscript({ role: 'user', text, agent });
   try { chrome.runtime.sendMessage({ type: 'ECHO_USER_ECHO', text, agent }).catch(() => {}); } catch { /* ignore */ }
 }
 

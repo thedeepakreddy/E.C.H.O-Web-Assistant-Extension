@@ -18,6 +18,7 @@ export interface CacheEntry {
 }
 
 const MAX_ENTRIES = 400;
+const CACHE_KEY_VERSION = 'v2';
 
 /** How long an answer stays valid, by the kind of question it was. */
 export function ttlFor(query: string): number {
@@ -42,15 +43,14 @@ export function normalizeQuery(q: string): string {
     .trim();
 }
 
-/** Cache scope: page-specific questions key on the URL, general ones don't. */
-function isPageScoped(query: string): boolean {
-  return /\b(this|page|here|article|site|screen|tab)\b/.test(query.toLowerCase());
-}
-
-function makeKey(url: string, rawQuery: string, normalized: string): string {
-  // Decide scope from the ORIGINAL question; normalization removes "this".
-  const scope = isPageScoped(rawQuery) ? stripUrl(url) : '*';
-  return `${scope}::${normalized}`;
+/**
+ * Answers are always page-bound. A seemingly general question such as
+ * "What is the refund policy?" is routinely answered from the active page;
+ * sharing it across origins can replay one site's answer on another site.
+ * The version prefix makes every pre-fix global key unreachable.
+ */
+function makeKey(url: string, _rawQuery: string, normalized: string): string {
+  return `${CACHE_KEY_VERSION}:${stripUrl(url)}::${normalized}`;
 }
 
 function stripUrl(url: string): string {
@@ -71,18 +71,7 @@ export function isCacheableQuery(query: string): boolean {
 }
 
 function safePageScope(query: string, url: string): boolean {
-  if (!isPageScoped(query)) return true;
   return /^https?:/i.test(url) && !/[?&#/](token|key|code|session|auth|password|secret)=/i.test(url);
-}
-
-/** Word-overlap similarity, 0..1. */
-function similarity(a: string, b: string): number {
-  const A = new Set(a.split(' ').filter(Boolean));
-  const B = new Set(b.split(' ').filter(Boolean));
-  if (!A.size || !B.size) return 0;
-  let shared = 0;
-  A.forEach(w => { if (B.has(w)) shared++; });
-  return shared / Math.max(A.size, B.size);
 }
 
 export interface CacheHit { answer: string; exact: boolean; ageMs: number }
@@ -101,25 +90,8 @@ export async function cacheLookup(query: string, url: string): Promise<CacheHit 
     return { answer: exact.answer, exact: true, ageMs: now - exact.ts };
   }
 
-  // Near-miss: same page, ≥72 % word overlap. Tight enough to avoid answering
-  // a different question, loose enough to absorb rephrasing.
-  // Near-miss reuse on pages is too risky: a changed article can look similar.
-  if (isPageScoped(query)) return null;
-  const scope = '*';
-  const all = await idbGetAll<CacheEntry>(STORE_CACHE, MAX_ENTRIES);
-  let best: CacheEntry | null = null;
-  let bestScore = 0;
-  for (const e of all) {
-    if (e.expires <= now) continue;
-    if (!e.key.startsWith(scope + '::')) continue;
-    const score = similarity(norm, e.query);
-    if (score > bestScore) { bestScore = score; best = e; }
-  }
-  if (best && bestScore >= 0.72) {
-    best.hits = (best.hits || 0) + 1;
-    idbPut(STORE_CACHE, best);
-    return { answer: best.answer, exact: false, ageMs: now - best.ts };
-  }
+  // Deliberately no fuzzy reuse. Similar-looking questions can concern
+  // different products, policies or dates even on the same URL.
   return null;
 }
 

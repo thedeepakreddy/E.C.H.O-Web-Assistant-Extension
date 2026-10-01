@@ -13,7 +13,8 @@ export async function webSearchMode(): Promise<SearchMode> {
 
 /** Is a search-capable provider (Claude or Gemini with a key) configured and search on? */
 export async function searchAvailable(): Promise<boolean> {
-  const r = await chrome.storage.local.get(['provider', 'anthropicApiKey', 'geminiApiKey', 'echo_local_settings']);
+  const r = await chrome.storage.local.get(['provider', 'anthropicApiKey', 'geminiApiKey', 'echo_local_settings', 'echo_privacy_consent']);
+  if ((r.echo_privacy_consent as any)?.version !== 1) return false;
   if ((r.echo_local_settings as any)?.webSearch === 'off') return false;
   const provider = r.provider || 'claude';
   return (provider === 'claude' && !!r.anthropicApiKey) || (provider === 'gemini' && !!r.geminiApiKey);

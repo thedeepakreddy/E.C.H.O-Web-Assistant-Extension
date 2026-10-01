@@ -16,7 +16,7 @@ const ts = require('typescript');
 const { launchEcho, evaluate, findTarget, delay } = require('../e2e/chrome.cjs');
 
 const ROOT = path.resolve(__dirname, '../..');
-const OPENCLAW = path.join(os.homedir(), '.npm-global/bin/openclaw');
+const OPENCLAW = require('./bin.cjs').findOpenClaw();
 const PROFILE = 'echo-e2e-apps';
 const PORT = 18801;
 const results = [];

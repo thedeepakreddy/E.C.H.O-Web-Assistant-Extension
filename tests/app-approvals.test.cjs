@@ -22,7 +22,7 @@ function loadTs(file, globals = {}) {
 }
 const settle = (ms = 20) => new Promise(r => setTimeout(r, ms));
 
-test('guard: only sending and paying ask; reading, drafting and other changes run', async () => {
+test('guard: sending, paying and remote mutations ask; reads and drafts run', async () => {
   const { classifyAppTool } = await guard();
   const expect = {
     'echo-mail__send_email': 'message', 'echo-mail__reply_email': 'message', 'echo-mail__send_draft': 'message',
@@ -30,12 +30,14 @@ test('guard: only sending and paying ask; reading, drafting and other changes ru
     'github__create_pull_request': 'message', 'shop__place_order': 'payment', 'stripe__create_payment': 'payment',
     'shop__buy_item': 'payment',
     'echo-mail__search_emails': null, 'echo-mail__read_email': null, 'echo-mail__mark_email_read': null,
-    'echo-mail__create_draft': null, 'echo-mail__delete_email': null, 'github__list_issues': null,
-    'github__update_issue': null, 'github__merge_pull_request': null, 'stripe__list_payments': null,
+    'echo-mail__create_draft': null, 'echo-mail__delete_email': 'change', 'github__list_issues': null,
+    'github__update_issue': 'change', 'github__merge_pull_request': 'change', 'stripe__list_payments': null,
     // ECHO's own browser tools ask in ECHO already; they are not app tools.
     'analyst_act': null, 'style_navigate': null,
   };
   for (const [tool, kind] of Object.entries(expect)) assert.equal(classifyAppTool(tool), kind, tool);
+  assert.equal(classifyAppTool('github__issue_write', { method: 'create' }), 'message');
+  assert.equal(classifyAppTool('github__issue_write', { method: 'close' }), 'change');
 });
 
 test('guard: the prompt says who, what and where, never the whole payload', async () => {

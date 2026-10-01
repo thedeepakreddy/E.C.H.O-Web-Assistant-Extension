@@ -1,8 +1,7 @@
 // Echo guard: an OpenClaw plugin, installed with Echo Helper, that asks the user
-// in ECHO before an ECHO agent sends a message or pays through a connected app
+// in ECHO before an ECHO agent causes a consequential change through a connected app
 // (an MCP server such as email or GitHub). It follows the same rule as ECHO's
-// browser actions: only paying and sending ask; everything else runs and is
-// logged. OpenClaw blocks the call when nobody can answer, or on Deny.
+// browser actions. OpenClaw blocks the call when nobody can answer, or on Deny.
 
 const ECHO_AGENT = /^echo(-[a-z]+)?$/;
 // How long OpenClaw waits for an answer. ECHO's prompt closes (as Deny) sooner,
@@ -14,11 +13,13 @@ export const APPROVAL_WAIT_MS = 60_000;
 const SEND_VERBS = new Set(['send', 'reply', 'respond', 'forward', 'post', 'publish', 'tweet', 'retweet', 'comment',
   'notify', 'invite', 'share', 'dm', 'message', 'broadcast', 'announce', 'email', 'mail']);
 const PAY_VERBS = new Set(['pay', 'purchase', 'buy', 'checkout', 'order', 'subscribe', 'donate', 'transfer', 'charge', 'refund', 'tip']);
+const CHANGE_VERBS = new Set(['update', 'edit', 'delete', 'remove', 'close', 'reopen', 'merge', 'cancel', 'grant', 'revoke',
+  'assign', 'unassign', 'archive', 'restore', 'set', 'change', 'disable', 'enable']);
 // Creating one of these puts words in front of other people.
 const POSTED_THINGS = /^(issue|comment|review|discussion|reply|pull_request|pr|message|post|email|mail|tweet)s?$/;
 const MONEY = /(^|_)(payment|money|funds)(_|$)/;
 
-/** What an app tool does, as far as asking goes: 'payment', 'message', or null (runs without asking). */
+/** What an app tool does, as far as asking goes. Unknown/read-only tools run without asking. */
 export function classifyAppTool(toolName, params = {}) {
   const [app, tool] = String(toolName || '').split('__');
   if (!app || !tool) return null;
@@ -30,7 +31,9 @@ export function classifyAppTool(toolName, params = {}) {
     const action = String(params?.method ?? params?.action ?? params?.operation ?? '').toLowerCase();
     const thing = words.slice(0, -1).join('_');
     const posts = POSTED_THINGS.test(thing) || /^pull_request(_review)?$/.test(thing);
-    return posts && /^(create|add|submit|post|reply|comment)/.test(action) ? 'message' : null;
+    if (posts && /^(create|add|submit|post|reply|comment)/.test(action)) return 'message';
+    return /^(update|edit|delete|remove|close|reopen|merge|cancel|grant|revoke|assign|unassign|archive|restore|set|change|disable|enable)/.test(action)
+      ? 'change' : null;
   }
   // Saving a draft sends nothing; "send_draft" sends.
   if (rest.includes('draft') || rest.includes('drafts')) return verb === 'send' ? 'message' : null;
@@ -40,6 +43,7 @@ export function classifyAppTool(toolName, params = {}) {
   if (SEND_VERBS.has(verb)) return 'message';
   if (['create', 'add', 'submit', 'open', 'write'].includes(verb)
     && (rest.some(w => POSTED_THINGS.test(w)) || /(^|_)pull_request(_|$)/.test(object))) return 'message';
+  if (CHANGE_VERBS.has(verb)) return 'change';
   return null;
 }
 
@@ -74,6 +78,17 @@ export function approvalRequest(toolName, params = {}) {
       description: clip(`Pay ${amount != null ? `${amount}${currency ? ` ${currency}` : ''} ` : ''}to ${payee} with ${app}.`, 500),
       severity: 'critical',
       ...(amount != null && currency ? { scope: { kind: 'payment', amount: clip(amount, 40), currency, target: payee } } : {}),
+    };
+  }
+  if (kind === 'change') {
+    const repo = p.owner && p.repo ? `${p.owner}/${p.repo}` : clip(p.repo || p.repository || '', 128);
+    const target = clip(repo || p.name || p.title || p.id || app, 128);
+    return {
+      title: `Change with ${app}`,
+      description: clip(`Allow ${String(toolName).split('__').at(-1).replace(/[_-]+/g, ' ')} on ${target}.`, 500),
+      detail: clip(p.body || p.text || p.message || '', 4000) || undefined,
+      severity: 'warning',
+      scope: { kind: 'external-change', target: clip(`${app} ${target}`, 128) },
     };
   }
   const repo = p.owner && p.repo ? `${p.owner}/${p.repo}` : clip(p.repo || p.repository || '', 128);
