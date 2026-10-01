@@ -30,11 +30,13 @@ const plain = v => JSON.parse(JSON.stringify(v));
  * A brain wired to a scripted Gemini (or OpenAI-compatible) model.
  * `reply(call)` gets { model, contents } and returns a response or throws.
  */
-function brainWith({ reply, provider = 'gemini', fetchReply, tool = () => ({ text: 'page' }), fastTimers = false }) {
+function brainWith({ reply, provider = 'gemini', fetchReply, tool = () => ({ text: 'page' }), fastTimers = false, authError }) {
   const calls = [];
   const said = [];
   const flagged = [];
   const tools = [];
+  const direct = [];
+  let openedOptions = 0;
   class GoogleGenAI {
     constructor() {
       this.models = {
@@ -50,11 +52,14 @@ function brainWith({ reply, provider = 'gemini', fetchReply, tool = () => ({ tex
   const modules = {
     '@google/genai': { GoogleGenAI, Type },
     '@anthropic-ai/sdk': { __esModule: true, default: class Anthropic {} },
-    auth: { getAuthConfig: async () => ({ provider, geminiApiKey: 'test-key', geminiModel: 'model-a', groqApiKey: 'test-key', groqModel: 'llama' }) },
+    auth: { PRIVACY_CONSENT_REQUIRED: 'PRIVACY_CONSENT_REQUIRED', getAuthConfig: async () => {
+      if (authError) throw authError;
+      return { provider, geminiApiKey: 'test-key', geminiModel: 'model-a', groqApiKey: 'test-key', groqModel: 'llama' };
+    } },
     tools: { executeTool: async (name, args) => { tools.push(name); return tool(name, args, tools.length); } },
     bus: {
       say: (tabId, text, _tier, extra) => { said.push(text); flagged.push(extra?.unverified || []); },
-      safeSendMessage: () => {},
+      safeSendMessage: (tabId, message) => direct.push({ tabId, message }),
       echoUser: () => {},
     },
     personalization: { personalContext: async () => '' },
@@ -68,6 +73,7 @@ function brainWith({ reply, provider = 'gemini', fetchReply, tool = () => ({ tex
   const chrome = {
     storage: { local: { get: async () => ({}) } },
     tabs: { get: async id => ({ id, url: 'https://shop.test/' }), query: async () => [{ id: 1 }] },
+    runtime: { openOptionsPage: async () => { openedOptions++; } },
   };
   const globals = { chrome };
   if (fastTimers) globals.setTimeout = fn => setTimeout(fn, 0);
@@ -79,7 +85,7 @@ function brainWith({ reply, provider = 'gemini', fetchReply, tool = () => ({ tex
     };
   }
   const brain = loadTs('src/background/brain.ts', globals, modules);
-  return { brain, calls, said, flagged, tools };
+  return { brain, calls, said, flagged, tools, direct, openedOptions: () => openedOptions };
 }
 
 const text = t => ({ candidates: [{ content: { role: 'model', parts: [{ text: t }] }, finishReason: 'STOP' }] });
@@ -87,6 +93,23 @@ const toolCall = (name = 'read_screen') => ({ candidates: [{ content: { role: 'm
 const empty = (finishReason = 'STOP') => ({ candidates: [{ content: { role: 'model', parts: [] }, finishReason }] });
 const userTexts = contents => contents.filter(m => m.role === 'user' && m.parts.some(p => p.text)).map(m => m.parts.map(p => p.text).join(''));
 const modelTexts = contents => contents.filter(m => m.role === 'model' && m.parts.some(p => p.text)).map(m => m.parts.map(p => p.text).join(''));
+
+test('missing privacy consent opens Options with guidance instead of an auth error', async () => {
+  const b = brainWith({
+    reply: () => text('unused'),
+    authError: Object.assign(
+      new Error('Cloud AI is off until you review and accept the privacy disclosure in ECHO Options.'),
+      { code: 'PRIVACY_CONSENT_REQUIRED' },
+    ),
+  });
+
+  await b.brain.processUserInput('Help me with this page', 1);
+
+  assert.equal(b.openedOptions(), 1);
+  assert.doesNotMatch(b.said.at(-1), /Auth\/Init Error/i);
+  assert.match(b.said.at(-1), /opened ECHO Options/i);
+  assert.equal(b.direct.at(-1).message.state, 'Idle');
+});
 
 test('a task stopped at the step limit can be continued: "keep going" still sees what was asked', async () => {
   let continuing = false;

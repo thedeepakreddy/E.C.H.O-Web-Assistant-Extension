@@ -1,6 +1,6 @@
 {
   "name": "echo-online-extension",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Local-first AI browser assistant for Chrome with explicit approval for consequential actions.",
   "private": true,
   "scripts": {

@@ -2,10 +2,10 @@
 
 ### A local-first AI browser assistant that understands pages, operates websites, remembers what matters, learns tasks by watching you, and runs agents in your tabs—by text or voice.
 
-[![Version](https://img.shields.io/badge/version-3.0.0-b8a1ff)](manifest.json)
+[![Version](https://img.shields.io/badge/version-3.0.1-b8a1ff)](manifest.json)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)](manifest.json)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
-[![Tests](https://img.shields.io/badge/tests-127%20passing-34C759)](tests)
+[![Tests](https://img.shields.io/badge/tests-133%20passing-34C759)](tests)
 [![License](https://img.shields.io/badge/license-ISC-lightgrey)](package.json)
 
 ECHO lives inside Chrome as an animated assistant, a persistent side-panel chat, and a complete settings dashboard. It can summarize and explain pages, navigate and click, fill safe form fields, extract structured information, manage tabs, learn a task by watching you do it, monitor pages, search the web, work with video transcripts, and help rewrite selected text.
@@ -14,7 +14,7 @@ With **agent mode** on, ECHO's characters become agents you assign to tabs: each
 
 The unusual part is what happens behind the interface: ECHO tries fast local methods before contacting a cloud model. Simple requests stay quick and private, cached answers are reused, supported Chrome installations can use on-device AI, and cloud models are reserved for work that genuinely needs them.
 
-> [Download the verified ECHO v3.0.0 ZIP](package%20for%20sharing/Echo_Online_v3.0.0.zip) · [SHA-256 checksum](package%20for%20sharing/Echo_Online_v3.0.0.zip.sha256) · [Build from source](#option-b--build-from-source) · [What's new in V3](#whats-new-in-v3) · [See everything ECHO can do](#complete-feature-guide)
+> [Download the verified ECHO v3.0.1 ZIP](package%20for%20sharing/Echo_Online_v3.0.1.zip) · [SHA-256 checksum](package%20for%20sharing/Echo_Online_v3.0.1.zip.sha256) · [Build from source](#option-b--build-from-source) · [What's new in V3](#whats-new-in-v3) · [See everything ECHO can do](#complete-feature-guide)
 
 ---
 
@@ -96,7 +96,7 @@ Select text in a field and use ECHO Writer to rewrite it. Review the result, cop
 
 This is the easiest route for non-technical users.
 
-1. [Download `Echo_Online_v3.0.0.zip`](package%20for%20sharing/Echo_Online_v3.0.0.zip) and optionally verify it with the adjacent [SHA-256 checksum](package%20for%20sharing/Echo_Online_v3.0.0.zip.sha256).
+1. [Download `Echo_Online_v3.0.1.zip`](package%20for%20sharing/Echo_Online_v3.0.1.zip) and optionally verify it with the adjacent [SHA-256 checksum](package%20for%20sharing/Echo_Online_v3.0.1.zip.sha256).
 2. Unzip it. The extracted folder contains the production extension files.
 3. Open Chrome and enter `chrome://extensions` in the address bar.
 4. Turn on **Developer mode** in the upper-right corner.

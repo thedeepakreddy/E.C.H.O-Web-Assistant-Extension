@@ -15,13 +15,23 @@ export interface AuthConfig {
 export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5-5';
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 export const PRIVACY_CONSENT_VERSION = 1;
+export const PRIVACY_CONSENT_REQUIRED = 'PRIVACY_CONSENT_REQUIRED';
+
+export class PrivacyConsentRequiredError extends Error {
+  readonly code = PRIVACY_CONSENT_REQUIRED;
+
+  constructor() {
+    super('Cloud AI is off until you review and accept the privacy disclosure in ECHO Options.');
+    this.name = 'PrivacyConsentRequiredError';
+  }
+}
 
 export function getAuthConfig(): Promise<AuthConfig> {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get(['echo_privacy_consent', 'provider', 'anthropicApiKey', 'geminiApiKey', 'togetherApiKey', 'openrouterApiKey', 'groqApiKey', 'togetherModel', 'openrouterModel', 'groqModel', 'anthropicModel', 'geminiModel'], (result) => {
       const consent = result.echo_privacy_consent as { version?: number } | undefined;
       if (consent?.version !== PRIVACY_CONSENT_VERSION) {
-        reject(new Error('Cloud AI is off until you review and accept the privacy disclosure in ECHO Options.'));
+        reject(new PrivacyConsentRequiredError());
         return;
       }
       const provider = (result.provider as AuthConfig['provider']) || 'claude';

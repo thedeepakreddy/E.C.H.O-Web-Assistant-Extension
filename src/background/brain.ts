@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { GoogleGenAI } from '@google/genai';
-import { getAuthConfig, AuthConfig } from './auth';
+import { getAuthConfig, PRIVACY_CONSENT_REQUIRED } from './auth';
+import type { AuthConfig } from './auth';
 import { executeTool } from './tools';
 import { say as busSay, safeSendMessage as busSend, echoUser } from './bus';
 import { personalContext } from './personalization';
@@ -484,6 +485,21 @@ export async function processUserInput(userInput: string, tabId?: number, opts: 
     }
   } catch (err: any) {
     if (err.message === 'Aborted by user' || err.name === 'AbortError') {
+      safeSendMessage(tabId!, { type: 'ECHO_STATE', state: 'Idle' });
+      return;
+    }
+    if (err?.code === PRIVACY_CONSENT_REQUIRED) {
+      let opened = false;
+      try {
+        await chrome.runtime.openOptionsPage();
+        opened = true;
+      } catch { /* The guidance still tells the user where to go. */ }
+      safeSendMessage(tabId!, {
+        type: 'ECHO_SAY',
+        text: opened
+          ? 'Cloud AI needs your permission. I opened ECHO Options. Review “Privacy & cloud consent”, enable “Allow cloud AI requests”, select Save, then try again.'
+          : 'Cloud AI needs your permission. Open ECHO Options, review “Privacy & cloud consent”, enable “Allow cloud AI requests”, select Save, then try again.',
+      });
       safeSendMessage(tabId!, { type: 'ECHO_STATE', state: 'Idle' });
       return;
     }

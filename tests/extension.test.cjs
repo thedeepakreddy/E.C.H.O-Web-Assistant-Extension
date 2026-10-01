@@ -23,7 +23,11 @@ function loadTs(file, globals = {}, requireStub = () => ({})) {
 test('cloud providers stay disabled until the privacy disclosure is accepted', async () => {
   const read = value => ({ storage: { local: { get: (_keys, callback) => callback(value) } } });
   const withoutConsent = loadTs('src/background/auth.ts', { chrome: read({ anthropicApiKey: 'sk-test' }) });
-  await assert.rejects(withoutConsent.getAuthConfig(), /privacy disclosure/i);
+  await assert.rejects(withoutConsent.getAuthConfig(), error => {
+    assert.match(error.message, /privacy disclosure/i);
+    assert.equal(error.code, 'PRIVACY_CONSENT_REQUIRED');
+    return true;
+  });
 
   const accepted = loadTs('src/background/auth.ts', { chrome: read({
     echo_privacy_consent: { version: 1 }, provider: 'claude', anthropicApiKey: 'sk-test',

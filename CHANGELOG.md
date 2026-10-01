@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.1] - 2026-10-01
+
+### Fixed
+
+- Missing cloud-privacy consent now opens ECHO Options with exact setup guidance instead of displaying an ambiguous `Auth/Init Error` and leaving ECHO in an error state.
+
 ## [3.0.0] - 2026-10-01
 
 ### Added
